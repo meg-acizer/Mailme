@@ -28,6 +28,7 @@ import {
   FileText,
   CalendarPlus,
   PenSquare,
+  LogOut,
 } from "lucide-react";
 
 interface EmailItem {
@@ -90,8 +91,21 @@ const mockEmails: EmailItem[] = [
   },
 ];
 
-export function Workspace() {
+export interface WorkspaceUser {
+  id: string;
+  email: string;
+  name: string;
+  tenantName: string;
+}
+
+interface WorkspaceProps {
+  user?: WorkspaceUser;
+  onLogout?: () => void;
+}
+
+export function Workspace({ user, onLogout }: WorkspaceProps) {
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [locale, setLocale] = useState<Locale>("es");
   const [activeModule, setActiveModule] = useState<string>("mail");
   const [selectedEmail, setSelectedEmail] = useState<EmailItem>(mockEmails[0]);
@@ -106,6 +120,11 @@ export function Workspace() {
   const t = dictionaries[locale];
 
   const filteredEmails = mockEmails.filter((email) => email.triage === triageFilter);
+
+  // Set mounted on client to prevent theme hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Keyboard shortcut listener ('c' for compose)
   useEffect(() => {
@@ -169,9 +188,9 @@ export function Workspace() {
                 <h1 className="font-semibold text-xs tracking-wide uppercase text-muted-foreground">
                   Tenant
                 </h1>
-                <p className="font-medium text-sm flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-primary" />
-                  Acme Corp
+                <p className="font-medium text-sm flex items-center gap-1.5 truncate">
+                  <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="truncate">{user?.tenantName || "Acme Corp"}</span>
                 </p>
               </div>
             </div>
@@ -334,7 +353,7 @@ export function Workspace() {
                 onClick={() => setTheme("light")}
                 title={t.theme.light}
                 className={`p-1 rounded ${
-                  theme === "light"
+                  mounted && theme === "light"
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -345,7 +364,7 @@ export function Workspace() {
                 onClick={() => setTheme("dark")}
                 title={t.theme.dark}
                 className={`p-1 rounded ${
-                  theme === "dark"
+                  mounted && theme === "dark"
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -356,7 +375,7 @@ export function Workspace() {
                 onClick={() => setTheme("system")}
                 title={t.theme.system}
                 className={`p-1 rounded ${
-                  theme === "system"
+                  mounted && theme === "system"
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -392,8 +411,18 @@ export function Workspace() {
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground font-mono">
-              user: <strong className="text-foreground">meg-acizer</strong>
+              user: <strong className="text-foreground">{user?.name || user?.email || "meg-acizer"}</strong>
             </span>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive px-2 py-1 rounded hover:bg-muted transition-colors cursor-pointer"
+                title="Cerrar sesión"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Salir</span>
+              </button>
+            )}
           </div>
         </header>
 
