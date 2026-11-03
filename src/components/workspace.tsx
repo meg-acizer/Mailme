@@ -29,6 +29,7 @@ import {
   CalendarPlus,
   PenSquare,
   LogOut,
+  ShieldAlert,
 } from "lucide-react";
 
 interface EmailItem {
@@ -101,9 +102,10 @@ export interface WorkspaceUser {
 interface WorkspaceProps {
   user?: WorkspaceUser;
   onLogout?: () => void;
+  onOpenAdmin?: () => void;
 }
 
-export function Workspace({ user, onLogout }: WorkspaceProps) {
+export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [locale, setLocale] = useState<Locale>("es");
@@ -409,7 +411,18 @@ export function Workspace({ user, onLogout }: WorkspaceProps) {
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {onOpenAdmin && (
+              <button
+                onClick={onOpenAdmin}
+                className="flex items-center gap-1.5 text-xs bg-primary/10 border border-primary/25 text-primary hover:bg-primary/20 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer"
+                title="Consola de Administración del Tenant"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" />
+                <span>Admin del Tenant</span>
+              </button>
+            )}
+
             <span className="text-xs text-muted-foreground font-mono">
               user: <strong className="text-foreground">{user?.name || user?.email || "meg-acizer"}</strong>
             </span>

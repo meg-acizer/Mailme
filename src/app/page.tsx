@@ -3,12 +3,14 @@
 import React, { useState, useEffect } from "react";
 import { Workspace, type WorkspaceUser } from "@/components/workspace";
 import { AuthView } from "@/components/auth-view";
+import { TenantAdminView } from "@/components/tenant-admin-view";
 
 const STORAGE_KEY = "mailme_session_user";
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<WorkspaceUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<"workspace" | "admin">("workspace");
 
   // Restore session from localStorage if available
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function Home() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setViewMode("workspace");
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (e) {
@@ -54,5 +57,20 @@ export default function Home() {
     return <AuthView onSuccess={handleLoginSuccess} />;
   }
 
-  return <Workspace user={currentUser} onLogout={handleLogout} />;
+  if (viewMode === "admin") {
+    return (
+      <TenantAdminView
+        tenantName={currentUser.tenantName || "Acme Corp"}
+        onBackToWorkspace={() => setViewMode("workspace")}
+      />
+    );
+  }
+
+  return (
+    <Workspace
+      user={currentUser}
+      onLogout={handleLogout}
+      onOpenAdmin={() => setViewMode("admin")}
+    />
+  );
 }
