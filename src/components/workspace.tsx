@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { dictionaries, type Locale } from "@/lib/i18n/dictionaries";
+import { MailComposer } from "./mail-composer";
 import {
   Inbox,
   Calendar,
@@ -26,6 +27,7 @@ import {
   AlertCircle,
   FileText,
   CalendarPlus,
+  PenSquare,
 } from "lucide-react";
 
 interface EmailItem {
@@ -97,13 +99,59 @@ export function Workspace() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  // Composer Modal State
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerData, setComposerData] = useState({ to: "", subject: "", body: "" });
+
   const t = dictionaries[locale];
 
   const filteredEmails = mockEmails.filter((email) => email.triage === triageFilter);
 
+  // Keyboard shortcut listener ('c' for compose)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key.toLowerCase() === "c" &&
+        !composerOpen &&
+        !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        setComposerData({ to: "", subject: "", body: "" });
+        setComposerOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [composerOpen]);
+
+  const handleOpenComposer = (to = "", subject = "", body = "") => {
+    setComposerData({ to, subject, body });
+    setComposerOpen(true);
+  };
+
   const handleQuickAction = (actionText: string) => {
-    setActionNotice(`Acción IA: "${actionText}" ejecutada en borrador`);
-    setTimeout(() => setActionNotice(null), 4000);
+    if (actionText === "Confirmar reunión jueves 15:00") {
+      handleOpenComposer(
+        selectedEmail.senderEmail,
+        `Re: ${selectedEmail.subject}`,
+        `Hola ${selectedEmail.senderName},\n\nPerfecto, me queda excelente el jueves a las 15:00 hs. Ya reservo el espacio en mi agenda.\n\nSaludos cordiales.`
+      );
+    } else if (actionText === "Solicitar desglose adicional") {
+      handleOpenComposer(
+        selectedEmail.senderEmail,
+        `Re: ${selectedEmail.subject}`,
+        `Hola ${selectedEmail.senderName},\n\nGracias por la propuesta. ¿Podrías enviarme un desglose más detallado del ítem de infraestructura?\n\nQuedo atento.`
+      );
+    } else if (actionText === "Proponer viernes 11:00") {
+      handleOpenComposer(
+        selectedEmail.senderEmail,
+        `Re: ${selectedEmail.subject}`,
+        `Hola ${selectedEmail.senderName},\n\nEl jueves tengo la tarde ocupada con compromisos previos. ¿Te parece si coordinamos para el viernes a las 11:00 hs?\n\nSaludos cordiales.`
+      );
+    } else {
+      setActionNotice(`Acción IA: "${actionText}" procesada`);
+      setTimeout(() => setActionNotice(null), 4000);
+    }
   };
 
   return (
@@ -127,6 +175,20 @@ export function Workspace() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Compose Button */}
+          <div className="p-3 pb-1">
+            <button
+              onClick={() => handleOpenComposer()}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-primary text-primary-foreground font-semibold text-xs shadow-md hover:bg-primary/90 transition-all cursor-pointer"
+            >
+              <PenSquare className="h-4 w-4" />
+              <span>Redactar</span>
+              <span className="text-[10px] opacity-80 border border-primary-foreground/30 px-1.5 py-0.2 rounded font-mono">
+                C
+              </span>
+            </button>
           </div>
 
           {/* Core Modules Navigation */}
@@ -428,10 +490,14 @@ export function Workspace() {
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-lg font-bold text-foreground">{selectedEmail.subject}</h2>
                     <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded hover:bg-muted text-muted-foreground">
+                      <button
+                        onClick={() => handleOpenComposer(selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`)}
+                        className="p-1.5 rounded hover:bg-muted text-muted-foreground cursor-pointer"
+                        title="Responder"
+                      >
                         <Reply className="h-4 w-4" />
                       </button>
-                      <button className="p-1.5 rounded hover:bg-muted text-muted-foreground">
+                      <button className="p-1.5 rounded hover:bg-muted text-muted-foreground cursor-pointer">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </div>
@@ -613,6 +679,19 @@ export function Workspace() {
           </aside>
         </div>
       </main>
+
+      {/* Floating Mail Composer Window */}
+      <MailComposer
+        isOpen={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        initialTo={composerData.to}
+        initialSubject={composerData.subject}
+        initialBody={composerData.body}
+        onSendSuccess={(msg) => {
+          setActionNotice(msg);
+          setTimeout(() => setActionNotice(null), 4000);
+        }}
+      />
     </div>
   );
 }
