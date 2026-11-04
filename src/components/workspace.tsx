@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { dictionaries, type Locale } from "@/lib/i18n/dictionaries";
 import { MailComposer } from "./mail-composer";
+import { CommandPalette } from "./command-palette";
+import { TodayView } from "./views/today-view";
 import {
   Inbox,
   Calendar,
@@ -30,6 +32,7 @@ import {
   PenSquare,
   LogOut,
   ShieldAlert,
+  RefreshCw,
 } from "lucide-react";
 
 interface EmailItem {
@@ -110,10 +113,13 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [mounted, setMounted] = useState(false);
   const [locale, setLocale] = useState<Locale>("es");
   const [activeModule, setActiveModule] = useState<string>("mail");
+  const [emailsList, setEmailsList] = useState<EmailItem[]>(mockEmails);
   const [selectedEmail, setSelectedEmail] = useState<EmailItem>(mockEmails[0]);
   const [triageFilter, setTriageFilter] = useState<"important" | "pending" | "other">("important");
   const [aiPrompt, setAiPrompt] = useState("");
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isTriaging, setIsTriaging] = useState(false);
 
   // Composer Modal State
   const [composerOpen, setComposerOpen] = useState(false);
@@ -121,19 +127,65 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
   const t = dictionaries[locale];
 
-  const filteredEmails = mockEmails.filter((email) => email.triage === triageFilter);
+  const filteredEmails = emailsList.filter((email) => email.triage === triageFilter);
+
+  const handleRunAiTriage = async (targetEmail: EmailItem) => {
+    setIsTriaging(true);
+    setActionNotice("Analizando correo con el motor de IA...");
+    try {
+      const res = await fetch("/api/ai/triage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: targetEmail.subject,
+          from: targetEmail.senderEmail,
+          text: targetEmail.preview,
+          tenantSlug: "acme-corp",
+        }),
+      });
+
+      const data = await res.json();
+      if (data.triage) {
+        const updated: EmailItem = {
+          ...targetEmail,
+          aiSummary: data.triage.oneLineSummary || targetEmail.aiSummary,
+          extractedData: {
+            meeting: data.triage.extractedData?.meeting || targetEmail.extractedData?.meeting,
+            invoice: data.triage.extractedData?.invoiceOrAmount || targetEmail.extractedData?.invoice,
+          },
+        };
+
+        setSelectedEmail(updated);
+        setEmailsList((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+        setActionNotice("Triage IA completado con éxito");
+      }
+    } catch (err) {
+      console.error("Error running AI triage", err);
+      setActionNotice("No se pudo conectar con el LLM, usando resumen de respaldo");
+    } finally {
+      setIsTriaging(false);
+      setTimeout(() => setActionNotice(null), 4000);
+    }
+  };
 
   // Set mounted on client to prevent theme hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Keyboard shortcut listener ('c' for compose)
+  // Keyboard shortcut listener ('c' for compose, 'Cmd+K' for command palette)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
       if (
         e.key.toLowerCase() === "c" &&
         !composerOpen &&
+        !isCommandPaletteOpen &&
         !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
       ) {
         e.preventDefault();
@@ -143,7 +195,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [composerOpen]);
+  }, [composerOpen, isCommandPaletteOpen]);
 
   const handleOpenComposer = (to = "", subject = "", body = "") => {
     setComposerData({ to, subject, body });
@@ -394,14 +446,16 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         {/* Top Command Palette & Search Bar */}
         <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-card/40 backdrop-blur">
           <div className="flex items-center gap-3 w-96">
-            <div className="relative w-full">
-              <Search className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder={t.common.searchPlaceholder}
-                className="w-full bg-muted/60 pl-9 pr-4 py-1.5 rounded-lg border border-border/80 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
+            <button
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="relative w-full flex items-center justify-between bg-muted/60 pl-9 pr-3 py-1.5 rounded-lg border border-border/80 text-xs text-muted-foreground hover:bg-muted cursor-pointer transition-colors"
+            >
+              <Search className="h-4 w-4 absolute left-3 top-2 text-muted-foreground" />
+              <span className="truncate">{t.common.searchPlaceholder}</span>
+              <span className="text-[10px] font-mono border border-border px-1.5 py-0.5 rounded bg-card text-foreground shrink-0 ml-2">
+                ⌘K
+              </span>
+            </button>
           </div>
 
           {actionNotice && (
@@ -439,10 +493,18 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           </div>
         </header>
 
-        {/* 3-Column Content View */}
-        <div className="flex-1 flex min-h-0 overflow-hidden">
-          {/* Column A: Unified Inbox List */}
-          <section className="w-80 border-r border-border flex flex-col bg-card/20">
+        {/* Main Content Area: Today Dashboard View or 3-Column Unified Inbox */}
+        {activeModule === "today" ? (
+          <TodayView
+            userName={user?.name || "meg-acizer"}
+            onNavigateToMail={() => setActiveModule("mail")}
+            onNavigateToCalendar={() => setActiveModule("calendar")}
+            onOpenComposer={(to, sub) => handleOpenComposer(to, sub)}
+          />
+        ) : (
+          <div className="flex-1 flex min-h-0 overflow-hidden">
+            {/* Column A: Unified Inbox List */}
+            <section className="w-80 border-r border-border flex flex-col bg-card/20">
             {/* Triage Chips */}
             <div className="p-3 border-b border-border flex gap-1.5">
               <button
@@ -559,9 +621,19 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
                 {/* Smart AI Summary & Extracted Data Pills */}
                 <div className="bg-card border border-border rounded-xl p-4 space-y-3 shadow-sm">
-                  <div className="flex items-center gap-2 font-semibold text-xs text-primary">
-                    <Sparkles className="h-4 w-4" />
-                    <span>{t.ai.summaryTitle}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-semibold text-xs text-primary">
+                      <Sparkles className="h-4 w-4" />
+                      <span>{t.ai.summaryTitle}</span>
+                    </div>
+                    <button
+                      onClick={() => handleRunAiTriage(selectedEmail)}
+                      disabled={isTriaging}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${isTriaging ? "animate-spin" : ""}`} />
+                      <span>{isTriaging ? "Analizando..." : "Re-analizar con IA"}</span>
+                    </button>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {selectedEmail.aiSummary}
@@ -720,6 +792,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             </div>
           </aside>
         </div>
+      )}
       </main>
 
       {/* Floating Mail Composer Window */}
@@ -732,6 +805,21 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         onSendSuccess={(msg) => {
           setActionNotice(msg);
           setTimeout(() => setActionNotice(null), 4000);
+        }}
+      />
+
+      {/* Universal Command Palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigate={(mod) => setActiveModule(mod)}
+        onOpenComposer={() => handleOpenComposer()}
+        onOpenAdmin={() => {
+          if (onOpenAdmin) onOpenAdmin();
+        }}
+        onSetLocale={(loc) => setLocale(loc)}
+        onTriggerAiQuery={(query) => {
+          handleQuickAction(query);
         }}
       />
     </div>
