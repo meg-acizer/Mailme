@@ -22,10 +22,11 @@ envContent.split("\n").forEach((line) => {
 const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MASTER_KEY = env.ENCRYPTION_MASTER_KEY || process.env.ENCRYPTION_MASTER_KEY;
+const ENV_BOT_TOKEN = env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
 
 function decryptCredentials(encryptedBase64) {
   if (!MASTER_KEY || MASTER_KEY.length < 32) {
-    throw new Error("ENCRYPTION_MASTER_KEY inválido");
+    throw new Error("ENCRYPTION_MASTER_KEY no configurado");
   }
   const key = crypto.createHash("sha256").update(MASTER_KEY).digest();
   const buffer = Buffer.from(encryptedBase64, "base64");
@@ -38,41 +39,62 @@ function decryptCredentials(encryptedBase64) {
 }
 
 async function getBotConfig() {
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const { data: tenant, error } = await supabase
-    .from("tenants")
-    .select("id, name, settings")
-    .eq("slug", "acme-corp")
-    .maybeSingle();
-
-  if (error || !tenant) {
-    throw new Error("No se pudo obtener el tenant desde Supabase");
+  // 1. Verificar si está directamente en .env.local
+  if (ENV_BOT_TOKEN && ENV_BOT_TOKEN.length > 15 && !ENV_BOT_TOKEN.startsWith("#")) {
+    return {
+      botToken: ENV_BOT_TOKEN.trim(),
+      botUsername: "@Bot",
+      allowedIds: [],
+      source: ".env.local",
+    };
   }
 
-  const tg = tenant.settings?.telegram_bot;
-  if (!tg || !tg.bot_token) {
-    throw new Error("No hay bot token configurado en la Consola del Tenant en Supabase");
+  // 2. Verificar en Supabase
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    return null;
   }
 
-  let botToken = tg.bot_token;
-  if (botToken.length > 50) {
-    try {
-      botToken = decryptCredentials(botToken);
-    } catch {
-      // Usar tal cual si no estaba cifrado
+  try {
+    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const { data: tenants, error } = await supabase
+      .from("tenants")
+      .select("id, name, slug, settings");
+
+    if (error || !tenants || tenants.length === 0) {
+      return null;
     }
+
+    // Buscar en cualquier tenant que tenga telegram_bot configurado
+    for (const t of tenants) {
+      const tg = t.settings?.telegram_bot;
+      if (tg && tg.bot_token) {
+        let token = tg.bot_token;
+        if (token.length > 50) {
+          try {
+            token = decryptCredentials(token);
+          } catch {
+            // usar tal cual
+          }
+        }
+
+        const allowedIds = Array.isArray(tg.allowed_ids)
+          ? tg.allowed_ids.map((id) => String(id).trim())
+          : [];
+
+        return {
+          tenantId: t.id,
+          botToken: token,
+          botUsername: tg.bot_username || "@Bot",
+          allowedIds,
+          source: `Supabase (Tenant: ${t.name})`,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Aviso consultando Supabase:", err.message);
   }
 
-  const allowedIds = Array.isArray(tg.allowed_ids)
-    ? tg.allowed_ids.map((id) => String(id).trim())
-    : [];
-
-  return {
-    tenantId: tenant.id,
-    botToken,
-    botUsername: tg.bot_username || "@Bot",
-    allowedIds,
-  };
+  return null;
 }
 
 async function sendTelegramMessage(botToken, chatId, text, replyMarkup) {
@@ -97,41 +119,62 @@ async function main() {
   console.log("====================================================");
   console.log("  🚀 MailMe - Telegram Dev Polling Runner");
   console.log("====================================================");
-  console.log("Obteniendo configuración desde Supabase...");
+  console.log("Buscando configuración del Bot de Telegram...\n");
 
-  let config;
-  try {
-    config = await getBotConfig();
-    console.log(`✓ Bot configurado: ${config.botUsername}`);
+  const config = await getBotConfig();
+
+  if (!config || !config.botToken) {
+    console.log("❌ No se encontró ningún Bot Token configurado.");
+    console.log("\n👉 Tienes dos formas muy sencillas de activarlo:");
+    console.log("   Opción 1: En tu navegador, ve a 'Admin del Tenant' -> 'Bot Telegram & Whitelist'");
+    console.log("             Pega tu Bot Token de BotFather y haz clic en 'Guardar Configuración'.");
+    console.log("   Opción 2: O si prefieres, añade esta línea en tu archivo .env.local:");
+    console.log("             TELEGRAM_BOT_TOKEN=tu_token_de_botfather_aqui\n");
+    console.log("Luego vuelve a ejecutar: npm run telegram:poll");
+    return;
+  }
+
+  console.log(`✓ Bot Token detectado desde: ${config.source}`);
+  if (config.allowedIds?.length > 0) {
     console.log(`✓ Whitelist actual: [ ${config.allowedIds.join(", ")} ]`);
-  } catch (err) {
-    console.error("❌ Error de configuración:", err.message);
-    process.exit(1);
+  } else {
+    console.log(`ℹ️ Whitelist: Modo abierto temporal (cualquier usuario que escriba será detectado).`);
   }
 
   const { botToken, allowedIds } = config;
 
   // 1. Verificar credenciales con getMe
-  const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-  const meData = await meRes.json();
-  if (!meData.ok) {
-    console.error("❌ Token inválido según Telegram:", meData.description);
-    process.exit(1);
+  let meData;
+  try {
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    meData = await meRes.json();
+  } catch (netErr) {
+    console.error("❌ Error conectando con api.telegram.org:", netErr.message);
+    return;
   }
+
+  if (!meData || !meData.ok) {
+    console.error("❌ Token inválido según Telegram:", meData?.description || "Error de autenticación");
+    return;
+  }
+
   console.log(`🤖 Conectado con éxito a Telegram como: @${meData.result.username} (${meData.result.first_name})`);
 
   // 2. Eliminar webhook para permitir getUpdates
-  console.log("Eliminando webhook previo para habilitar modo Long Polling local...");
-  const delRes = await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook?drop_pending_updates=false`);
-  const delData = await delRes.json();
-  if (delData.ok) {
-    console.log("✓ Webhook removido. Modo Polling local activo y escuchando...");
-  } else {
-    console.warn("Aviso al remover webhook:", delData.description);
+  console.log("Desactivando webhook para habilitar modo Long Polling local...");
+  try {
+    const delRes = await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook?drop_pending_updates=false`);
+    const delData = await delRes.json();
+    if (delData.ok) {
+      console.log("✓ Modo Polling activo. Escuchando mensajes en tiempo real...");
+    }
+  } catch (err) {
+    console.warn("Aviso:", err.message);
   }
 
-  console.log("\n⚡ ¡Listo! Envía cualquier mensaje a tu bot en Telegram.");
-  console.log("----------------------------------------------------");
+  console.log("\n⚡ ¡Listo! Abre Telegram y envíale un mensaje a tu bot: @" + meData.result.username);
+  console.log("   (Escribe /start, 'hoy', 'resumen' o envía una nota de voz)");
+  console.log("------------------------------------------------------------------");
 
   let offset = 0;
 
@@ -146,12 +189,12 @@ async function main() {
         for (const update of data.result) {
           offset = update.update_id + 1;
 
-          // A. Manejo de botones (Callback Query)
+          // A. Botones interactivos (Callback Query)
           if (update.callback_query) {
             const cb = update.callback_query;
             const senderId = String(cb.from.id);
             console.log(`\n🔘 [Clic en botón] Usuario: ${cb.from.first_name} (ID: ${senderId}), Acción: ${cb.data}`);
-            
+
             await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -159,14 +202,22 @@ async function main() {
             });
 
             if (cb.data?.startsWith("action:send:")) {
-              await sendTelegramMessage(botToken, cb.message.chat.id, "🚀 *Correo enviado con éxito* a través de su cuenta corporativa.");
+              await sendTelegramMessage(
+                botToken,
+                cb.message.chat.id,
+                "🚀 *Borrador enviado con éxito* a través de su cuenta corporativa."
+              );
             } else if (cb.data?.startsWith("action:discard:")) {
-              await sendTelegramMessage(botToken, cb.message.chat.id, "🗑️ *Borrador descartado*.");
+              await sendTelegramMessage(
+                botToken,
+                cb.message.chat.id,
+                "🗑️ *Borrador descartado*."
+              );
             }
             continue;
           }
 
-          // B. Manejo de Mensajes
+          // B. Mensajes normales
           const message = update.message;
           if (!message) continue;
 
@@ -175,7 +226,7 @@ async function main() {
           const userHandle = message.from.username ? `@${message.from.username}` : "";
           const text = message.text || (message.voice ? "[Nota de voz]" : "[Archivo/Otro]");
 
-          console.log(`\n📩 [Mensaje recibido]`);
+          console.log(`\n📩 [Mensaje recibido en Telegram]`);
           console.log(`   Remitente: ${senderName} ${userHandle}`);
           console.log(`   Telegram ID: ${senderId}`);
           console.log(`   Contenido: "${text}"`);
@@ -186,7 +237,7 @@ async function main() {
             allowedIds.some((allowed) => allowed.split(" ")[0].trim() === senderId);
 
           if (!isAllowed) {
-            console.log(`   ⛔ Acceso RECHAZADO: El ID ${senderId} NO está en la Whitelist.`);
+            console.log(`   ⛔ Acceso RECHAZADO: El ID ${senderId} no está en la Whitelist.`);
             await sendTelegramMessage(
               botToken,
               message.chat.id,
@@ -195,11 +246,10 @@ async function main() {
             continue;
           }
 
-          console.log(`   ✅ Acceso AUTORIZADO. Procesando respuesta...`);
+          console.log(`   ✅ Acceso AUTORIZADO. Enviando respuesta...`);
 
           const lower = (message.text || "").trim().toLowerCase();
 
-          // Comandos rápidos
           if (lower === "/start" || lower === "hola") {
             await sendTelegramMessage(
               botToken,
@@ -242,7 +292,6 @@ async function main() {
               `🎙️ *Nota de voz procesada con éxito*\n\n_Intención detectada:_ "Consultar reuniones de la tarde".\n\n• Tienes 2 reuniones programadas a partir de las 14:00.`
             );
           } else {
-            // Respuesta asistida con borrador de correo interactivo
             await sendTelegramMessage(
               botToken,
               message.chat.id,
@@ -260,11 +309,10 @@ async function main() {
               }
             );
           }
-          console.log(`   ✓ Respuesta despachada a Telegram.`);
+          console.log(`   ✓ Respuesta despachada con éxito a Telegram.`);
         }
       }
-    } catch (loopErr) {
-      // Continuar polling ante desconexiones de red breves
+    } catch {
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
