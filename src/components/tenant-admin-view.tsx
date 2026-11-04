@@ -32,6 +32,10 @@ import {
   Layers,
   Loader2,
   RefreshCw,
+  Send,
+  Copy,
+  ExternalLink,
+  Radio,
 } from "lucide-react";
 
 interface TenantUser {
@@ -263,13 +267,129 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   };
 
   // Telegram Integration State
-  const [botToken, setBotToken] = useState("7123456789:AAHk...telegram_token");
+  const [telegramEnabled, setTelegramEnabled] = useState(true);
+  const [botToken, setBotToken] = useState("");
   const [botUsername, setBotUsername] = useState("@MailMeCorporateBot");
   const [authorizedTelegramIds, setAuthorizedTelegramIds] = useState<string[]>([
     "987654321 (meg-acizer)",
     "123456789 (Carlos CTO)",
   ]);
   const [newTelegramId, setNewTelegramId] = useState("");
+  const [testTelegramId, setTestTelegramId] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("https://mailme.app/api/telegram/webhook?tenantId=11111111-1111-1111-1111-111111111111");
+  const [isConfiguringWebhook, setIsConfiguringWebhook] = useState(false);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isSavingTelegram, setIsSavingTelegram] = useState(false);
+  const [telegramFeedback, setTelegramFeedback] = useState<string | null>(null);
+
+  // Load Telegram config from Supabase
+  useEffect(() => {
+    async function fetchTelegramConfig() {
+      try {
+        const res = await fetch("/api/tenant/telegram-config?tenantSlug=acme-corp");
+        const json = await res.json();
+        if (json.config) {
+          setTelegramEnabled(json.config.enabled ?? true);
+          setBotToken(json.config.botToken || "");
+          setBotUsername(json.config.botUsername || "@MailMeCorporateBot");
+          if (json.config.allowedIds?.length) {
+            setAuthorizedTelegramIds(json.config.allowedIds);
+          }
+          if (json.config.webhookUrl) {
+            setWebhookUrl(json.config.webhookUrl);
+          }
+        }
+      } catch (e) {
+        console.error("Error loading Telegram config", e);
+      }
+    }
+
+    if (activeTab === "telegram") {
+      fetchTelegramConfig();
+    }
+  }, [activeTab]);
+
+  const handleSaveTelegramConfig = async () => {
+    setIsSavingTelegram(true);
+    try {
+      const res = await fetch("/api/tenant/telegram-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "acme-corp",
+          botToken,
+          botUsername,
+          allowedIds: authorizedTelegramIds,
+          enabled: telegramEnabled,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error al guardar");
+      triggerNotice("Configuración de Telegram cifrada y guardada en Supabase.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al guardar";
+      alert(msg);
+    } finally {
+      setIsSavingTelegram(false);
+    }
+  };
+
+  const handleSetupWebhook = async () => {
+    setIsConfiguringWebhook(true);
+    setTelegramFeedback(null);
+    try {
+      const res = await fetch("/api/tenant/telegram-webhook-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "acme-corp",
+          botToken,
+          webhookUrl,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error al configurar webhook");
+      if (json.bot?.username) {
+        setBotUsername(`@${json.bot.username}`);
+      }
+      setTelegramFeedback(`✓ Webhook activo y validado para @${json.bot?.username || "bot"}`);
+      triggerNotice(`Webhook activo para @${json.bot?.username}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al configurar webhook";
+      setTelegramFeedback(`⚠️ ${msg}`);
+    } finally {
+      setIsConfiguringWebhook(false);
+    }
+  };
+
+  const handleSendTestMessage = async (targetId: string) => {
+    if (!targetId) {
+      alert("Selecciona o escribe un Telegram ID para enviar la prueba");
+      return;
+    }
+    setIsTestingTelegram(true);
+    setTelegramFeedback(null);
+    try {
+      const res = await fetch("/api/tenant/telegram-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "acme-corp",
+          botToken,
+          targetChatId: targetId,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error en el envío");
+      setTelegramFeedback(`✓ Mensaje de prueba enviado exitosamente a ${targetId}`);
+      triggerNotice(`Mensaje enviado a ${targetId}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error de envío";
+      setTelegramFeedback(`⚠️ ${msg}`);
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
 
   // Security & Email Policies State
   const [onlyCorporateAccounts, setOnlyCorporateAccounts] = useState(true);
@@ -894,41 +1014,156 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
           {/* TAB 4: TELEGRAM BOT INTEGRATION */}
           {activeTab === "telegram" && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight">Integración de Bot de Telegram</h2>
-                <p className="text-xs text-muted-foreground">
-                  Vincula el bot oficial de tu empresa y define exactamente qué Telegram IDs tienen autorización para consultar la agenda y los correos corporativos.
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight">Integración de Bot de Telegram</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Vincula el bot oficial de tu empresa y define exactamente qué Telegram IDs tienen autorización para consultar la agenda y los correos corporativos.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground">Bot Activo</span>
+                  <input
+                    type="checkbox"
+                    checked={telegramEnabled}
+                    onChange={(e) => setTelegramEnabled(e.target.checked)}
+                    className="h-4 w-4 accent-primary cursor-pointer"
+                  />
+                </div>
               </div>
 
+              {/* Status and Webhook Card */}
+              <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Radio className="h-4 w-4 text-primary animate-pulse" />
+                      <h3 className="font-bold text-xs text-foreground">Estado del Webhook Corporativo</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Telegram enviará las actualizaciones (mensajes de texto y notas de voz) directamente a este endpoint seguro.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSetupWebhook}
+                    disabled={isConfiguringWebhook || !botToken}
+                    className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs flex items-center gap-1.5 hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isConfiguringWebhook ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    <span>Verificar y Registrar Webhook</span>
+                  </button>
+                </div>
+
+                <div className="p-3 bg-muted/40 rounded-lg border border-border flex items-center justify-between font-mono text-xs text-muted-foreground">
+                  <span className="truncate pr-4">{webhookUrl}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(webhookUrl);
+                      triggerNotice("URL del webhook copiada");
+                    }}
+                    className="p-1 rounded hover:bg-muted text-foreground flex items-center gap-1 text-[11px] font-sans shrink-0 cursor-pointer"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copiar URL</span>
+                  </button>
+                </div>
+
+                {telegramFeedback && (
+                  <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-medium flex items-center gap-2">
+                    <span>{telegramFeedback}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bot Credentials & Testing */}
               <div className="bg-card border border-border rounded-xl p-6 space-y-5 shadow-sm">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Bot Token de Telegram</label>
+                    <label className="block text-xs font-semibold mb-1 text-muted-foreground">
+                      Bot Token de Telegram
+                    </label>
                     <input
                       type="password"
                       value={botToken}
                       onChange={(e) => setBotToken(e.target.value)}
+                      placeholder="123456789:AAHk... (Proporcionado por @BotFather)"
                       className="w-full bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                     />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      El token se guardará cifrado con AES-256-GCM en la base de datos de Supabase.
+                    </p>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Username del Bot</label>
+                    <label className="block text-xs font-semibold mb-1 text-muted-foreground">
+                      Username del Bot
+                    </label>
                     <input
                       type="text"
                       value={botUsername}
                       onChange={(e) => setBotUsername(e.target.value)}
+                      placeholder="@NombreDeTuBot"
                       className="w-full bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                     />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Se detecta automáticamente al pulsar &quot;Verificar y Registrar Webhook&quot;.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Send Test Ping Card */}
+                <div className="border-t border-border pt-4 space-y-3">
+                  <h4 className="text-xs font-bold text-foreground">Probar Conexión con un Empleado (Ping de Prueba)</h4>
+                  <p className="text-[11px] text-muted-foreground">
+                    Envía un mensaje de prueba inmediato a un Telegram ID para verificar que el bot puede contactar al usuario.
+                  </p>
+                  <div className="flex gap-2">
+                    <select
+                      value={testTelegramId}
+                      onChange={(e) => setTestTelegramId(e.target.value)}
+                      className="flex-1 bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">Selecciona un Telegram ID de la lista o escribe abajo...</option>
+                      {authorizedTelegramIds.map((item, idx) => (
+                        <option key={idx} value={item.split(" ")[0]}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleSendTestMessage(testTelegramId || authorizedTelegramIds[0]?.split(" ")[0])}
+                      disabled={isTestingTelegram || !botToken}
+                      className="px-4 py-2 bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isTestingTelegram ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      <span>Enviar Ping de Prueba</span>
+                    </button>
                   </div>
                 </div>
 
                 {/* Whitelist of Telegram IDs */}
                 <div className="border-t border-border pt-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold">Telegrams IDs Autorizados (Whitelist)</label>
-                    <span className="text-[10px] text-muted-foreground">
-                      Cualquier mensaje de un ID no autorizado será descartado automáticamente.
+                    <div>
+                      <label className="text-xs font-bold text-foreground block">
+                        Telegram IDs Autorizados (Whitelist de Seguridad)
+                      </label>
+                      <span className="text-[11px] text-muted-foreground">
+                        Cualquier mensaje proveniente de un ID no listado aquí será rechazado con 403 Forbidden.
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono font-semibold bg-muted px-2 py-0.5 rounded">
+                      {authorizedTelegramIds.length} autorizados
                     </span>
                   </div>
 
@@ -937,33 +1172,49 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                       type="text"
                       value={newTelegramId}
                       onChange={(e) => setNewTelegramId(e.target.value)}
-                      placeholder="Ej: 549112345678 (Nombre del empleado)"
+                      placeholder="Ej: 549112345678 (Carlos CTO) o ID numérico de Telegram"
                       className="flex-1 bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all cursor-pointer"
+                      className="px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all cursor-pointer shrink-0"
                     >
                       Autorizar ID
                     </button>
                   </form>
 
-                  <div className="space-y-1.5 pt-2">
+                  <div className="space-y-1.5 pt-2 max-h-52 overflow-y-auto">
                     {authorizedTelegramIds.map((item, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-2.5 rounded-lg bg-muted/40 text-xs"
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-muted/40 border border-border/50 text-xs"
                       >
-                        <span className="font-mono font-medium">{item}</span>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                          <span className="font-mono font-medium">{item}</span>
+                        </div>
                         <button
                           onClick={() => handleRemoveTelegramId(idx)}
-                          className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors"
+                          className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors cursor-pointer"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     ))}
                   </div>
+                </div>
+
+                {/* Save Telegram Button */}
+                <div className="flex items-center justify-end pt-3 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={handleSaveTelegramConfig}
+                    disabled={isSavingTelegram}
+                    className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold text-xs rounded-xl hover:bg-primary/90 transition-all shadow-md cursor-pointer flex items-center gap-2 disabled:opacity-60"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>{isSavingTelegram ? "Cifrando y Guardando..." : "Guardar Configuración de Telegram"}</span>
+                  </button>
                 </div>
               </div>
             </div>

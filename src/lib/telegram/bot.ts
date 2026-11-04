@@ -130,13 +130,18 @@ export class TelegramBotClient {
 /**
  * Validates whether the incoming Telegram sender is authorized for this tenant
  */
-export async function getTenantBotConfig(tenantId: string) {
+export async function getTenantBotConfig(tenantIdOrSlug: string) {
   const supabase = createAdminClient();
-  const { data: tenant, error } = await supabase
-    .from("tenants")
-    .select("settings")
-    .eq("id", tenantId)
-    .single();
+  let query = supabase.from("tenants").select("id, settings");
+  
+  // Check whether it's a UUID or a slug
+  if (tenantIdOrSlug.includes("-") && tenantIdOrSlug.length >= 32) {
+    query = query.eq("id", tenantIdOrSlug);
+  } else {
+    query = query.eq("slug", tenantIdOrSlug);
+  }
+
+  const { data: tenant, error } = await query.maybeSingle();
 
   if (error || !tenant) {
     return null;
@@ -161,6 +166,7 @@ export async function getTenantBotConfig(tenantId: string) {
     : [];
 
   return {
+    tenantId: tenant.id,
     botToken,
     allowedIds,
     enabled: tgSettings.enabled ?? true,
@@ -168,12 +174,23 @@ export async function getTenantBotConfig(tenantId: string) {
 }
 
 /**
+ * Checks whether a sender ID is in the allowed list (supports labels like "12345 (Name)")
+ */
+function isSenderAuthorized(allowedIds: string[], senderId: string): boolean {
+  if (allowedIds.length === 0) return true;
+  return allowedIds.some((item) => {
+    const cleanId = item.split(" ")[0].trim();
+    return cleanId === senderId;
+  });
+}
+
+/**
  * Handles incoming Telegram update
  */
-export async function processTelegramUpdate(tenantId: string, update: TelegramUpdate) {
-  const botConfig = await getTenantBotConfig(tenantId);
+export async function processTelegramUpdate(tenantIdOrSlug: string, update: TelegramUpdate) {
+  const botConfig = await getTenantBotConfig(tenantIdOrSlug);
   if (!botConfig || !botConfig.enabled) {
-    console.warn(`[Telegram] Bot not configured or disabled for tenant ${tenantId}`);
+    console.warn(`[Telegram] Bot not configured or disabled for tenant ${tenantIdOrSlug}`);
     return;
   }
 
@@ -184,7 +201,7 @@ export async function processTelegramUpdate(tenantId: string, update: TelegramUp
     const cb = update.callback_query;
     const senderId = String(cb.from.id);
 
-    if (botConfig.allowedIds.length > 0 && !botConfig.allowedIds.includes(senderId)) {
+    if (!isSenderAuthorized(botConfig.allowedIds, senderId)) {
       await bot.answerCallbackQuery(cb.id, "⛔ Acceso denegado. Contacte a su administrador.");
       return;
     }
@@ -195,7 +212,7 @@ export async function processTelegramUpdate(tenantId: string, update: TelegramUp
       if (cb.message) {
         await bot.sendMessage(
           cb.message.chat.id,
-          "🚀 *Borrador enviado*: El correo ha sido despachado a través de su cuenta principal."
+          "🚀 *Borrador enviado*: El correo ha sido despachado a través de su cuenta corporativa principal."
         );
       }
     } else if (data.startsWith("action:discard:")) {
@@ -217,10 +234,10 @@ export async function processTelegramUpdate(tenantId: string, update: TelegramUp
   const chatId = message.chat.id;
 
   // Authorization check
-  if (botConfig.allowedIds.length > 0 && !botConfig.allowedIds.includes(senderId)) {
+  if (!isSenderAuthorized(botConfig.allowedIds, senderId)) {
     await bot.sendMessage(
       chatId,
-      `⛔ *Acceso no autorizado*\n\nSu ID de Telegram (\`${senderId}\`) no está registrado en la lista de usuarios autorizados de MailMe para esta organización.`
+      `⛔ *Acceso no autorizado*\n\nSu ID de Telegram (\`${senderId}\`) no está registrado en la lista de usuarios autorizados de MailMe para esta organización. Contacte al Administrador del Tenant.`
     );
     return;
   }
