@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ModelSelect } from "./ui/model-select";
-import { PROVIDER_CATALOG } from "@/lib/ai/providers";
+import { PROVIDER_CATALOG, type ModelOption } from "@/lib/ai/providers";
 import {
   Building2,
   Users,
@@ -30,6 +30,8 @@ import {
   Search,
   ShieldCheck,
   Layers,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 
 interface TenantUser {
@@ -113,10 +115,78 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const [fallbackApiKey, setFallbackApiKey] = useState("");
   const [fallbackModel, setFallbackModel] = useState("gpt-4o-mini");
 
+  // Dynamic Models State
+  const [primaryFetchedModels, setPrimaryFetchedModels] = useState<ModelOption[]>([]);
+  const [isFetchingPrimaryModels, setIsFetchingPrimaryModels] = useState(false);
+  const [primaryModelsStatus, setPrimaryModelsStatus] = useState<string | null>(null);
+
+  const [fallbackFetchedModels, setFallbackFetchedModels] = useState<ModelOption[]>([]);
+  const [isFetchingFallbackModels, setIsFetchingFallbackModels] = useState(false);
+  const [fallbackModelsStatus, setFallbackModelsStatus] = useState<string | null>(null);
+
   const [autoFallbackEnabled, setAutoFallbackEnabled] = useState(true);
   const [isSavingLlm, setIsSavingLlm] = useState(false);
   const [isLoadingLlm, setIsLoadingLlm] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  const handleFetchModels = async (
+    slot: "primary" | "fallback",
+    provider: SupportedProvider,
+    key: string
+  ) => {
+    const isPrimary = slot === "primary";
+    if (isPrimary) {
+      setIsFetchingPrimaryModels(true);
+      setPrimaryModelsStatus("Consultando API...");
+    } else {
+      setIsFetchingFallbackModels(true);
+      setFallbackModelsStatus("Consultando API...");
+    }
+
+    try {
+      const res = await fetch("/api/tenant/llm-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          apiKey: key,
+          tenantSlug: "acme-corp",
+          slot,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "No se pudieron obtener los modelos");
+      }
+
+      if (json.models && json.models.length > 0) {
+        if (isPrimary) {
+          setPrimaryFetchedModels(json.models);
+          setPrimaryModelsStatus(json.message || `✓ ${json.models.length} modelos cargados`);
+          if (!json.models.some((m: ModelOption) => m.id === primaryModel)) {
+            setPrimaryModel(json.models[0].id);
+          }
+        } else {
+          setFallbackFetchedModels(json.models);
+          setFallbackModelsStatus(json.message || `✓ ${json.models.length} modelos cargados`);
+          if (!json.models.some((m: ModelOption) => m.id === fallbackModel)) {
+            setFallbackModel(json.models[0].id);
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al conectar";
+      if (isPrimary) {
+        setPrimaryModelsStatus(`⚠️ ${msg}`);
+      } else {
+        setFallbackModelsStatus(`⚠️ ${msg}`);
+      }
+    } finally {
+      if (isPrimary) setIsFetchingPrimaryModels(false);
+      else setIsFetchingFallbackModels(false);
+    }
+  };
 
   // Load LLM configuration from Supabase via API
   useEffect(() => {
@@ -135,6 +205,14 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
           setFallbackApiKey(json.config.fallback.apiKey || "");
 
           setAutoFallbackEnabled(json.config.autoFallbackEnabled ?? true);
+
+          // Fetch dynamic models for stored keys
+          if (json.config.primary.provider) {
+            handleFetchModels("primary", json.config.primary.provider, json.config.primary.apiKey || "");
+          }
+          if (json.config.fallback.provider) {
+            handleFetchModels("fallback", json.config.fallback.provider, json.config.fallback.apiKey || "");
+          }
         }
       } catch (e) {
         console.error("Error loading LLM config", e);
@@ -531,6 +609,9 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                           onClick={() => {
                             setPrimaryProvider(provKey);
                             setPrimaryModel(prov.models[0].id);
+                            if (primaryApiKey) {
+                              handleFetchModels("primary", provKey, primaryApiKey);
+                            }
                           }}
                           className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                             primaryProvider === provKey
@@ -551,27 +632,54 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   {/* Primary API Key */}
                   <div>
-                    <label className="block text-xs font-semibold mb-1 text-muted-foreground">
-                      API Key de {PROVIDER_CATALOG[primaryProvider]?.displayName}
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-muted-foreground">
+                        API Key de {PROVIDER_CATALOG[primaryProvider]?.displayName}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleFetchModels("primary", primaryProvider, primaryApiKey)}
+                        disabled={isFetchingPrimaryModels || (!primaryApiKey && !primaryFetchedModels.length)}
+                        className="text-[10px] text-primary hover:underline font-semibold flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isFetchingPrimaryModels ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                        <span>Obtener Modelos</span>
+                      </button>
+                    </div>
                     <div className="relative">
                       <Key className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
                       <input
                         type="password"
                         value={primaryApiKey}
                         onChange={(e) => setPrimaryApiKey(e.target.value)}
+                        onBlur={() => {
+                          if (primaryApiKey.trim().length >= 8) {
+                            handleFetchModels("primary", primaryProvider, primaryApiKey);
+                          }
+                        }}
                         placeholder="sk-... o AIza... (Se almacenará cifrada)"
                         className="w-full bg-muted/50 border border-border pl-9 pr-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Al ingresar tu clave, se consultarán en vivo los modelos disponibles para tu cuenta.
+                    </p>
                   </div>
 
-                  {/* Primary Model with Typing Filter */}
+                  {/* Primary Model with Typing Filter & Live Fetched Models */}
                   <ModelSelect
                     provider={primaryProvider}
                     selectedModel={primaryModel}
                     onSelectModel={(id) => setPrimaryModel(id)}
                     label="Modelo Principal (Escribe para filtrar opciones)"
+                    customModels={primaryFetchedModels}
+                    isLoading={isFetchingPrimaryModels}
+                    statusMessage={primaryModelsStatus}
+                    onRefresh={() => handleFetchModels("primary", primaryProvider, primaryApiKey)}
                   />
                 </div>
               </div>
@@ -612,6 +720,9 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                               onClick={() => {
                                 setFallbackProvider(provKey);
                                 setFallbackModel(prov.models[0].id);
+                                if (fallbackApiKey) {
+                                  handleFetchModels("fallback", provKey, fallbackApiKey);
+                                }
                               }}
                               className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                                 fallbackProvider === provKey
@@ -632,27 +743,54 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                       {/* Fallback API Key */}
                       <div>
-                        <label className="block text-xs font-semibold mb-1 text-muted-foreground">
-                          API Key de Fallback ({PROVIDER_CATALOG[fallbackProvider]?.displayName})
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-muted-foreground">
+                            API Key de Fallback ({PROVIDER_CATALOG[fallbackProvider]?.displayName})
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleFetchModels("fallback", fallbackProvider, fallbackApiKey)}
+                            disabled={isFetchingFallbackModels || (!fallbackApiKey && !fallbackFetchedModels.length)}
+                            className="text-[10px] text-primary hover:underline font-semibold flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                          >
+                            {isFetchingFallbackModels ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3" />
+                            )}
+                            <span>Obtener Modelos</span>
+                          </button>
+                        </div>
                         <div className="relative">
                           <Key className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
                           <input
                             type="password"
                             value={fallbackApiKey}
                             onChange={(e) => setFallbackApiKey(e.target.value)}
+                            onBlur={() => {
+                              if (fallbackApiKey.trim().length >= 8) {
+                                handleFetchModels("fallback", fallbackProvider, fallbackApiKey);
+                              }
+                            }}
                             placeholder="sk-... o AIza... (Se almacenará cifrada)"
                             className="w-full bg-muted/50 border border-border pl-9 pr-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                           />
                         </div>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Al ingresar tu clave, se consultarán en vivo los modelos disponibles para tu cuenta.
+                        </p>
                       </div>
 
-                      {/* Fallback Model with Typing Filter */}
+                      {/* Fallback Model with Typing Filter & Live Fetched Models */}
                       <ModelSelect
                         provider={fallbackProvider}
                         selectedModel={fallbackModel}
                         onSelectModel={(id) => setFallbackModel(id)}
                         label="Modelo de Fallback (Escribe para filtrar opciones)"
+                        customModels={fallbackFetchedModels}
+                        isLoading={isFetchingFallbackModels}
+                        statusMessage={fallbackModelsStatus}
+                        onRefresh={() => handleFetchModels("fallback", fallbackProvider, fallbackApiKey)}
                       />
                     </div>
                   </>
