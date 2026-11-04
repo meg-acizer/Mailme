@@ -9,6 +9,7 @@ import { TodayView } from "./views/today-view";
 import { CalendarView } from "./views/calendar-view";
 import { TeamChatView } from "./views/team-chat-view";
 import { ContactsView } from "./views/contacts-view";
+import { AccountManagerModal, type ConnectedAccount } from "./account-manager-modal";
 import {
   Inbox,
   Calendar,
@@ -36,6 +37,13 @@ import {
   LogOut,
   ShieldAlert,
   RefreshCw,
+  Tag,
+  UserPlus,
+  File,
+  Download,
+  Plus,
+  ChevronDown,
+  Settings2,
 } from "lucide-react";
 
 interface EmailItem {
@@ -49,6 +57,11 @@ interface EmailItem {
   time: string;
   isUnread: boolean;
   triage: "important" | "pending" | "other";
+  priority?: "high" | "normal" | "low";
+  tags?: string[];
+  to?: string[];
+  cc?: string[];
+  attachments?: Array<{ name: string; size: string; type: string }>;
   extractedData?: {
     meeting?: string;
     invoice?: string;
@@ -67,6 +80,13 @@ const mockEmails: EmailItem[] = [
     time: "10:42 AM",
     isUnread: true,
     triage: "important",
+    priority: "high",
+    tags: ["#Finanzas", "#Propuesta-Q4", "#VIP"],
+    to: ["equipo@empresa.com", "direccion@empresa.com"],
+    cc: ["carlos@techcorp.io"],
+    attachments: [
+      { name: "Presupuesto_Q4_v2.pdf", size: "1.4 MB", type: "application/pdf" },
+    ],
     extractedData: {
       meeting: "Jueves 15:00 hs (Libre en tus agendas)",
       invoice: "Presupuesto_Q4_v2.pdf ($14,500)",
@@ -83,6 +103,12 @@ const mockEmails: EmailItem[] = [
     time: "09:15 AM",
     isUnread: false,
     triage: "important",
+    priority: "normal",
+    tags: ["#Proyecto-MailMe", "#Sprint-1"],
+    to: ["equipo@empresa.com"],
+    attachments: [
+      { name: "Especificacion_Endpoints_v1.docx", size: "480 KB", type: "application/docx" },
+    ],
   },
   {
     id: "3",
@@ -95,6 +121,9 @@ const mockEmails: EmailItem[] = [
     time: "Ayer",
     isUnread: false,
     triage: "pending",
+    priority: "low",
+    tags: ["#DevOps", "#GitHub"],
+    to: ["desarrollo@empresa.com"],
   },
 ];
 
@@ -128,9 +157,61 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerData, setComposerData] = useState({ to: "", subject: "", body: "" });
 
+  // User Multiple Accounts State
+  const [accountsList, setAccountsList] = useState<ConnectedAccount[]>([
+    { id: "1", provider: "microsoft", email: "lbenitez@innovasoft.com", displayName: "Microsoft 365 (Trabajo)", color: "#f97316", isDefault: true },
+    { id: "2", provider: "google", email: "cmendoza@techcorp.io", displayName: "Google Workspace (Personal)", color: "#3b82f6" },
+    { id: "3", provider: "imap_smtp", email: "soporte@miempresa.com", displayName: "IMAP Servidor (Clientes)", color: "#10b981" },
+  ]);
+  const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState<string | null>(null);
+  const [contactSavedNotice, setContactSavedNotice] = useState<string | null>(null);
+
   const t = dictionaries[locale];
 
-  const filteredEmails = emailsList.filter((email) => email.triage === triageFilter);
+  const filteredEmails = emailsList.filter((email) => {
+    const matchesTriage = email.triage === triageFilter;
+    const matchesAccount = !selectedAccountFilter || email.account.name.toLowerCase().includes(selectedAccountFilter.toLowerCase());
+    return matchesTriage && matchesAccount;
+  });
+
+  const handleUpdatePriority = (emailId: string, priority: "high" | "normal" | "low") => {
+    setEmailsList((prev) =>
+      prev.map((e) => (e.id === emailId ? { ...e, priority } : e))
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, priority }));
+    }
+    setActionNotice(`Prioridad marcada como: ${priority === "high" ? "Alta / Importante" : priority === "low" ? "Baja / No urgente" : "Normal"}`);
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleAddTagPrompt = (emailId: string) => {
+    const newTag = prompt("Ingresa el nombre de la etiqueta (ej: #Finanzas, #Urgente):", "#");
+    if (!newTag || newTag.trim() === "#") return;
+    const tagFormatted = newTag.startsWith("#") ? newTag.trim() : `#${newTag.trim()}`;
+
+    setEmailsList((prev) =>
+      prev.map((e) => {
+        if (e.id === emailId) {
+          const currentTags = e.tags || [];
+          return currentTags.includes(tagFormatted) ? e : { ...e, tags: [...currentTags, tagFormatted] };
+        }
+        return e;
+      })
+    );
+    if (selectedEmail.id === emailId) {
+      const currentTags = selectedEmail.tags || [];
+      if (!currentTags.includes(tagFormatted)) {
+        setSelectedEmail((prev) => ({ ...prev, tags: [...currentTags, tagFormatted] }));
+      }
+    }
+  };
+
+  const handleSaveContact = (email: string, name?: string) => {
+    setContactSavedNotice(`✓ Contacto "${name || email}" guardado en la Libreta Corporativa.`);
+    setTimeout(() => setContactSavedNotice(null), 3500);
+  };
 
   const handleRunAiTriage = async (targetEmail: EmailItem) => {
     setIsTriaging(true);
@@ -363,23 +444,53 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           </nav>
 
           {/* Connected Accounts Section */}
-          <div className="px-4 pt-6 pb-2">
-            <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              {t.common.allAccounts}
-            </h2>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded cursor-pointer">
-                <span className="h-2 w-2 rounded-full bg-[#3b82f6]" />
-                <span className="truncate">Google (Personal)</span>
+          <div className="px-4 pt-5 pb-2">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                {t.common.allAccounts}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsAccountsModalOpen(true)}
+                className="p-1 rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                title="Configurar y Agregar Cuentas"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div
+                onClick={() => setSelectedAccountFilter(null)}
+                className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer transition-colors ${
+                  selectedAccountFilter === null
+                    ? "bg-muted text-foreground font-semibold"
+                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                }`}
+              >
+                <span>Bandeja Unificada</span>
+                <span className="text-[10px] font-mono text-muted-foreground">({emailsList.length})</span>
               </div>
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded cursor-pointer">
-                <span className="h-2 w-2 rounded-full bg-[#f97316]" />
-                <span className="truncate">Outlook (Trabajo)</span>
-              </div>
-              <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded cursor-pointer">
-                <span className="h-2 w-2 rounded-full bg-[#10b981]" />
-                <span className="truncate">IMAP (Clientes)</span>
-              </div>
+
+              {accountsList.map((acc) => (
+                <div
+                  key={acc.id}
+                  onClick={() => setSelectedAccountFilter(acc.displayName)}
+                  className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer transition-colors ${
+                    selectedAccountFilter === acc.displayName
+                      ? "bg-muted text-foreground font-semibold"
+                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate pr-1">
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: acc.color }}
+                    />
+                    <span className="truncate">{acc.displayName}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -582,30 +693,68 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             </div>
           </section>
 
-          {/* Column B: Email Reading & Context Pane */}
-          <section className="flex-1 flex flex-col min-w-0 bg-background overflow-y-auto">
+          {/* Column B: Email Reading Pane - Hoja de Papel estilo Outlook */}
+          <section className="flex-1 flex flex-col min-w-0 bg-muted/40 overflow-y-auto p-4 md:p-6">
+            {contactSavedNotice && (
+              <div className="max-w-4xl mx-auto w-full mb-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-500 font-medium flex items-center justify-between">
+                <span>{contactSavedNotice}</span>
+                <button onClick={() => setContactSavedNotice(null)} className="text-muted-foreground hover:text-foreground">×</button>
+              </div>
+            )}
+
             {selectedEmail ? (
-              <div className="p-6 max-w-3xl space-y-4">
-                {/* Security Verification Banner */}
-                <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg text-xs">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4" />
-                    <span className="font-medium">{t.common.verified}</span>
-                    <span className="text-muted-foreground">
-                      (DMARC pass, spf=pass ip=209.85.220.41)
-                    </span>
+              <div className="w-full max-w-4xl mx-auto bg-card text-foreground border border-border shadow-xl rounded-2xl overflow-hidden flex flex-col">
+                {/* 1. Encabezado Delgado de Estado, Prioridad e IA (Slim Header) */}
+                <div className="px-6 py-2.5 bg-muted/30 border-b border-border/60 flex items-center justify-between text-xs gap-3">
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Selector de Prioridad (Estilo Outlook) */}
+                    <div className="flex items-center gap-1.5 bg-background px-2.5 py-1 rounded-lg border border-border shadow-sm">
+                      <span className="text-[10px] text-muted-foreground font-semibold uppercase">Prioridad:</span>
+                      <select
+                        value={selectedEmail.priority || "normal"}
+                        onChange={(e) => handleUpdatePriority(selectedEmail.id, e.target.value as any)}
+                        className="bg-transparent border-none text-xs font-semibold focus:outline-none cursor-pointer"
+                      >
+                        <option value="high">🔴 Alta / Importante</option>
+                        <option value="normal">⚪ Normal</option>
+                        <option value="low">🟢 Baja / No urgente</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-emerald-500/20">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>SPF/DKIM Verificado</span>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">Imágenes remotas protegidas</span>
+
+                  {/* Resumen IA Compacto en una Sola Línea */}
+                  <div className="flex items-center gap-2 truncate justify-end">
+                    <div className="flex items-center gap-1.5 text-primary text-[11px] truncate">
+                      <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse" />
+                      <span className="font-bold shrink-0">IA:</span>
+                      <span className="text-muted-foreground truncate">{selectedEmail.aiSummary}</span>
+                    </div>
+                    <button
+                      onClick={() => handleRunAiTriage(selectedEmail)}
+                      disabled={isTriaging}
+                      className="text-[11px] font-semibold text-primary hover:underline shrink-0"
+                    >
+                      {isTriaging ? "..." : "Re-analizar"}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Email Subject & Header */}
-                <div className="border-b border-border pb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-bold text-foreground">{selectedEmail.subject}</h2>
-                    <div className="flex items-center gap-1.5">
+                {/* 2. Cabecera del Documento: Asunto, De, Para, CC, Etiquetas */}
+                <div className="px-8 pt-6 pb-4 border-b border-border/60 space-y-3.5 bg-card">
+                  {/* Asunto y Barra de Acciones */}
+                  <div className="flex items-start justify-between gap-4">
+                    <h1 className="text-xl font-bold text-foreground tracking-tight leading-snug">
+                      {selectedEmail.subject}
+                    </h1>
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => setActiveModule("chat")}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
                         title="Discutir este correo internamente con el equipo"
                       >
                         <MessageSquare className="h-3.5 w-3.5 text-primary" />
@@ -613,106 +762,153 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                       </button>
                       <button
                         onClick={() => handleOpenComposer(selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`)}
-                        className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground cursor-pointer"
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold shadow hover:bg-primary/90 cursor-pointer transition-colors"
                         title="Responder"
                       >
-                        <Reply className="h-4 w-4" />
+                        <Reply className="h-3.5 w-3.5" />
+                        <span>Responder</span>
                       </button>
                       <button className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground cursor-pointer">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">{selectedEmail.senderName}</span>
-                    <span>&lt;{selectedEmail.senderEmail}&gt;</span>
-                    <span>•</span>
-                    <span
-                      className="px-2 py-0.5 rounded text-[10px] font-semibold text-white"
-                      style={{ backgroundColor: selectedEmail.account.color }}
-                    >
-                      {selectedEmail.account.name}
-                    </span>
+
+                  {/* Campos de Cabecera del Correo */}
+                  <div className="space-y-2 text-xs pt-1">
+                    {/* Campo DE: */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-muted-foreground w-14 shrink-0 uppercase text-[10px]">De:</span>
+                        <span className="font-bold text-foreground text-sm">{selectedEmail.senderName}</span>
+                        <span className="text-muted-foreground font-mono">&lt;{selectedEmail.senderEmail}&gt;</span>
+                        <span
+                          className="px-2 py-0.2 rounded text-[10px] font-semibold text-white ml-1"
+                          style={{ backgroundColor: selectedEmail.account.color }}
+                        >
+                          {selectedEmail.account.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveContact(selectedEmail.senderEmail, selectedEmail.senderName)}
+                          className="text-[10px] text-primary hover:underline font-semibold ml-2 flex items-center gap-1 cursor-pointer bg-primary/10 px-2 py-0.5 rounded"
+                          title="Guardar este remitente como contacto en el directorio corporativo"
+                        >
+                          <UserPlus className="h-3 w-3" />
+                          <span>+ Guardar contacto</span>
+                        </button>
+                      </div>
+                      <span className="text-muted-foreground text-xs font-mono">{selectedEmail.time}</span>
+                    </div>
+
+                    {/* Campo PARA: */}
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-muted-foreground w-14 shrink-0 uppercase text-[10px]">Para:</span>
+                      <span className="text-muted-foreground font-mono">
+                        {selectedEmail.to?.join(", ") || "equipo@empresa.com"}
+                      </span>
+                    </div>
+
+                    {/* Campo CC: si existe */}
+                    {selectedEmail.cc && selectedEmail.cc.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-muted-foreground w-14 shrink-0 uppercase text-[10px]">CC:</span>
+                        <span className="text-muted-foreground font-mono">{selectedEmail.cc.join(", ")}</span>
+                      </div>
+                    )}
+
+                    {/* Etiquetas Claras y Selector Interactivo */}
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-border/40">
+                      <span className="font-bold text-muted-foreground w-14 shrink-0 uppercase text-[10px]">Etiquetas:</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {(selectedEmail.tags || ["#Proyecto-MailMe", "#Dirección"]).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1"
+                          >
+                            <Tag className="h-3 w-3" />
+                            <span>{tag}</span>
+                          </span>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => handleAddTagPrompt(selectedEmail.id)}
+                          className="text-[11px] text-primary hover:underline font-semibold flex items-center gap-1 cursor-pointer px-2 py-0.5 rounded border border-dashed border-primary/40 hover:bg-primary/5"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Etiquetar</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Smart AI Summary & Extracted Data Pills */}
-                <div className="bg-card border border-border rounded-xl p-4 space-y-3 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-semibold text-xs text-primary">
-                      <Sparkles className="h-4 w-4" />
-                      <span>{t.ai.summaryTitle}</span>
-                    </div>
-                    <button
-                      onClick={() => handleRunAiTriage(selectedEmail)}
-                      disabled={isTriaging}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/25 bg-primary/10 hover:bg-primary/20 text-[11px] font-semibold text-primary transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${isTriaging ? "animate-spin" : ""}`} />
-                      <span>{isTriaging ? "Analizando..." : "Re-analizar con IA"}</span>
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {selectedEmail.aiSummary}
-                  </p>
-
-                  {/* Extracted Data Badges */}
-                  {selectedEmail.extractedData && (
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-border/60">
-                      {selectedEmail.extractedData.meeting && (
-                        <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-500 px-2.5 py-1 rounded-md text-xs font-medium">
-                          <CalendarPlus className="h-3.5 w-3.5" />
-                          <span>{selectedEmail.extractedData.meeting}</span>
-                        </div>
-                      )}
-                      {selectedEmail.extractedData.invoice && (
-                        <div className="flex items-center gap-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-500 px-2.5 py-1 rounded-md text-xs font-medium">
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>{selectedEmail.extractedData.invoice}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Email Body */}
-                <div className="py-4 text-xs leading-relaxed space-y-3 text-foreground/90">
+                {/* 3. CUERPO DEL CORREO: Aspecto de Hoja de Papel */}
+                <div className="p-8 text-xs leading-relaxed space-y-4 text-foreground/90 font-sans min-h-[220px] bg-card">
                   <p>Estimado equipo,</p>
                   <p>
-                    Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se
-                    detalla el desglose por rubro y los plazos de entrega estimados para cada
-                    entregable.
+                    Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el
+                    desglose por rubro y los plazos de entrega estimados para cada entregable.
                   </p>
                   <p>
-                    ¿Tendrán disponibilidad el <strong>jueves a las 15:00 hs</strong> para revisar
-                    estos puntos en una llamada de 45 minutos?
+                    ¿Tendrán disponibilidad el <strong>jueves a las 15:00 hs</strong> para revisar estos puntos en
+                    una llamada de 45 minutos?
                   </p>
-                  <p className="pt-2">Saludos cordiales,<br />Carlos Mendoza</p>
+                  <p className="pt-3">
+                    Saludos cordiales,<br />
+                    <strong>{selectedEmail.senderName}</strong>
+                  </p>
                 </div>
 
-                {/* Quick AI Response Suggestions */}
-                <div className="border-t border-border pt-4 space-y-2">
-                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                    {t.ai.suggestedReplies}
+                {/* 4. Archivos Adjuntos (Estilo Outlook con descarga y vista previa) */}
+                <div className="px-8 py-3.5 bg-muted/20 border-t border-border/60">
+                  <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-2">
+                    Archivos Adjuntos (1 archivo • Escaneado por ClamAV)
                   </span>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:border-primary/50 transition-colors cursor-pointer group shadow-sm">
+                      <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
+                        <File className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors block">
+                          Presupuesto_Q4_v2.pdf
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono">1.4 MB • Documento PDF</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => alert("Descargando Presupuesto_Q4_v2.pdf...")}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted ml-2 cursor-pointer"
+                        title="Descargar archivo"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. Respuestas Sugeridas de IA al Pie de la Hoja */}
+                <div className="px-8 py-3.5 bg-muted/30 border-t border-border/60 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Respuestas sugeridas:</span>
                     <button
                       onClick={() => handleQuickAction("Confirmar reunión jueves 15:00")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
                     >
                       <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                       <span>{t.ai.acceptMeeting}</span>
                     </button>
                     <button
                       onClick={() => handleQuickAction("Solicitar desglose adicional")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
                     >
                       <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
                       <span>{t.ai.askDetails}</span>
                     </button>
                     <button
                       onClick={() => handleQuickAction("Proponer viernes 11:00")}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
                     >
                       <Clock className="h-3.5 w-3.5 text-blue-500" />
                       <span>{t.ai.proposeAlternative}</span>
@@ -819,8 +1015,27 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         initialTo={composerData.to}
         initialSubject={composerData.subject}
         initialBody={composerData.body}
+        accounts={accountsList}
+        onSaveContact={(email) => handleSaveContact(email)}
         onSendSuccess={(msg) => {
           setActionNotice(msg);
+          setTimeout(() => setActionNotice(null), 4000);
+        }}
+      />
+
+      {/* Account Manager Modal */}
+      <AccountManagerModal
+        isOpen={isAccountsModalOpen}
+        onClose={() => setIsAccountsModalOpen(false)}
+        accounts={accountsList}
+        onAddAccount={(newAcc) => {
+          setAccountsList((prev) => [...prev, newAcc]);
+          setActionNotice(`Cuenta ${newAcc.email} vinculada con éxito`);
+          setTimeout(() => setActionNotice(null), 4000);
+        }}
+        onRemoveAccount={(accId) => {
+          setAccountsList((prev) => prev.filter((a) => a.id !== accId));
+          setActionNotice("Cuenta desconectada");
           setTimeout(() => setActionNotice(null), 4000);
         }}
       />
