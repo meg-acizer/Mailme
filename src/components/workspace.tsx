@@ -6,6 +6,9 @@ import { dictionaries, type Locale } from "@/lib/i18n/dictionaries";
 import { MailComposer } from "./mail-composer";
 import { CommandPalette } from "./command-palette";
 import { TodayView } from "./views/today-view";
+import { CalendarView } from "./views/calendar-view";
+import { TeamChatView } from "./views/team-chat-view";
+import { ContactsView } from "./views/contacts-view";
 import {
   Inbox,
   Calendar,
@@ -493,7 +496,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           </div>
         </header>
 
-        {/* Main Content Area: Today Dashboard View or 3-Column Unified Inbox */}
+        {/* Main Content Area: Today Dashboard View, Calendar, Team Chat, Contacts, or 3-Column Unified Inbox */}
         {activeModule === "today" ? (
           <TodayView
             userName={user?.name || "meg-acizer"}
@@ -501,6 +504,12 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             onNavigateToCalendar={() => setActiveModule("calendar")}
             onOpenComposer={(to, sub) => handleOpenComposer(to, sub)}
           />
+        ) : activeModule === "calendar" ? (
+          <CalendarView />
+        ) : activeModule === "chat" ? (
+          <TeamChatView />
+        ) : activeModule === "contacts" ? (
+          <ContactsView />
         ) : (
           <div className="flex-1 flex min-h-0 overflow-hidden">
             {/* Column A: Unified Inbox List */}
@@ -593,15 +602,23 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                 <div className="border-b border-border pb-4">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-lg font-bold text-foreground">{selectedEmail.subject}</h2>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setActiveModule("chat")}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                        title="Discutir este correo internamente con el equipo"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                        <span className="hidden sm:inline">Discutir en Chat</span>
+                      </button>
                       <button
                         onClick={() => handleOpenComposer(selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`)}
-                        className="p-1.5 rounded hover:bg-muted text-muted-foreground cursor-pointer"
+                        className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground cursor-pointer"
                         title="Responder"
                       >
                         <Reply className="h-4 w-4" />
                       </button>
-                      <button className="p-1.5 rounded hover:bg-muted text-muted-foreground cursor-pointer">
+                      <button className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground cursor-pointer">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </div>
