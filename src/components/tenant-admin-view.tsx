@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { ModelSelect } from "./ui/model-select";
+import { PROVIDER_CATALOG } from "@/lib/ai/providers";
 import {
   Building2,
   Users,
@@ -26,6 +28,8 @@ import {
   Activity,
   FileCheck,
   Search,
+  ShieldCheck,
+  Layers,
 } from "lucide-react";
 
 interface TenantUser {
@@ -99,11 +103,86 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<"admin" | "member">("member");
 
-  // LLM Configuration State
-  const [llmProvider, setLlmProvider] = useState<"openai" | "openrouter" | "gemini" | "claude">("gemini");
-  const [llmApiKey, setLlmApiKey] = useState("••••••••••••••••••••••••••••••••");
-  const [llmModel, setLlmModel] = useState("gemini-1.5-flash");
+  // LLM Configuration State (Primary & Fallback)
+  type SupportedProvider = "gemini" | "openai" | "claude" | "openrouter";
+  const [primaryProvider, setPrimaryProvider] = useState<SupportedProvider>("gemini");
+  const [primaryApiKey, setPrimaryApiKey] = useState("");
+  const [primaryModel, setPrimaryModel] = useState("gemini-1.5-flash");
+
+  const [fallbackProvider, setFallbackProvider] = useState<SupportedProvider>("openai");
+  const [fallbackApiKey, setFallbackApiKey] = useState("");
+  const [fallbackModel, setFallbackModel] = useState("gpt-4o-mini");
+
+  const [autoFallbackEnabled, setAutoFallbackEnabled] = useState(true);
+  const [isSavingLlm, setIsSavingLlm] = useState(false);
+  const [isLoadingLlm, setIsLoadingLlm] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  // Load LLM configuration from Supabase via API
+  useEffect(() => {
+    async function fetchLlmConfig() {
+      setIsLoadingLlm(true);
+      try {
+        const res = await fetch("/api/tenant/llm-config?tenantSlug=acme-corp");
+        const json = await res.json();
+        if (json.config) {
+          setPrimaryProvider(json.config.primary.provider);
+          setPrimaryModel(json.config.primary.model);
+          setPrimaryApiKey(json.config.primary.apiKey || "");
+
+          setFallbackProvider(json.config.fallback.provider);
+          setFallbackModel(json.config.fallback.model);
+          setFallbackApiKey(json.config.fallback.apiKey || "");
+
+          setAutoFallbackEnabled(json.config.autoFallbackEnabled ?? true);
+        }
+      } catch (e) {
+        console.error("Error loading LLM config", e);
+      } finally {
+        setIsLoadingLlm(false);
+      }
+    }
+
+    if (activeTab === "llm") {
+      fetchLlmConfig();
+    }
+  }, [activeTab]);
+
+  const handleSaveLlmConfig = async () => {
+    setIsSavingLlm(true);
+    try {
+      const res = await fetch("/api/tenant/llm-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "acme-corp",
+          primary: {
+            provider: primaryProvider,
+            apiKey: primaryApiKey,
+            model: primaryModel,
+          },
+          fallback: {
+            provider: fallbackProvider,
+            apiKey: fallbackApiKey,
+            model: fallbackModel,
+          },
+          autoFallbackEnabled,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || "Error al guardar");
+      }
+
+      triggerNotice("Configuración de LLM (Principal y Fallback) cifrada y guardada en Supabase.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al guardar configuración";
+      alert(msg);
+    } finally {
+      setIsSavingLlm(false);
+    }
+  };
 
   // Telegram Integration State
   const [botToken, setBotToken] = useState("7123456789:AAHk...telegram_token");
@@ -400,85 +479,201 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
             </div>
           )}
 
-          {/* TAB 2: LLM & AI PROVIDER CONFIG */}
+          {/* TAB 2: LLM & AI PROVIDER CONFIG (PRIMARY & FALLBACK WITH TYPING FILTER) */}
           {activeTab === "llm" && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight">Proveedor de Inteligencia Artificial</h2>
-                <p className="text-xs text-muted-foreground">
-                  Configura qué modelo y API utilizarán todos los colaboradores de la empresa para triage, resúmenes y el bot.
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight">
+                    Configuración de LLM & Inteligencia Artificial
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Configura el modelo principal y el modelo de fallback (respaldo) con almacenamiento cifrado en Supabase.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 px-3 py-1.5 rounded-lg font-medium">
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Bóveda AES-256-GCM en Supabase</span>
+                </div>
               </div>
 
-              <div className="bg-card border border-border rounded-xl p-6 space-y-6 shadow-sm">
+              {isLoadingLlm && (
+                <div className="p-3 bg-muted/40 text-muted-foreground text-xs rounded-lg animate-pulse">
+                  Cargando configuración actual desde Supabase...
+                </div>
+              )}
+
+              {/* CARD 1: PRIMARY MODEL */}
+              <div className="bg-card border-2 border-primary/30 rounded-2xl p-6 space-y-5 shadow-sm">
+                <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <span className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs">
+                      1
+                    </span>
+                    <span>Modelo Principal (Primary)</span>
+                  </div>
+                  <span className="text-[10px] bg-primary/15 text-primary font-bold px-2 py-0.5 rounded-full uppercase">
+                    Predeterminado para todo el equipo
+                  </span>
+                </div>
+
+                {/* Primary Provider Selector */}
                 <div>
-                  <label className="block text-xs font-semibold mb-2">Seleccionar Proveedor</label>
+                  <label className="block text-xs font-semibold mb-2 text-muted-foreground">
+                    Proveedor Principal
+                  </label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {[
-                      { id: "gemini", name: "Google Gemini", model: "gemini-1.5-flash" },
-                      { id: "openai", name: "OpenAI", model: "gpt-4o-mini" },
-                      { id: "claude", name: "Anthropic Claude", model: "claude-3-5-sonnet" },
-                      { id: "openrouter", name: "OpenRouter", model: "deepseek/deepseek-chat" },
-                    ].map((p) => (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          setLlmProvider(p.id as typeof llmProvider);
-                          setLlmModel(p.model);
-                        }}
-                        className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                          llmProvider === p.id
-                            ? "border-primary bg-primary/10 shadow-sm"
-                            : "border-border hover:bg-muted/40"
-                        }`}
-                      >
-                        <div className="font-bold text-xs">{p.name}</div>
-                        <div className="text-[10px] text-muted-foreground mt-1 font-mono">
-                          {p.model}
+                    {(["gemini", "openai", "claude", "openrouter"] as const).map((provKey) => {
+                      const prov = PROVIDER_CATALOG[provKey];
+                      return (
+                        <div
+                          key={provKey}
+                          onClick={() => {
+                            setPrimaryProvider(provKey);
+                            setPrimaryModel(prov.models[0].id);
+                          }}
+                          className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                            primaryProvider === provKey
+                              ? "border-primary bg-primary/10 shadow-sm"
+                              : "border-border hover:bg-muted/40"
+                          }`}
+                        >
+                          <div className="font-bold text-xs">{prov.displayName}</div>
+                          <div className="text-[10px] text-muted-foreground mt-1 line-clamp-1">
+                            {prov.description}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                  {/* Primary API Key */}
                   <div>
-                    <label className="block text-xs font-semibold mb-1">API Key Corporativa</label>
+                    <label className="block text-xs font-semibold mb-1 text-muted-foreground">
+                      API Key de {PROVIDER_CATALOG[primaryProvider]?.displayName}
+                    </label>
                     <div className="relative">
                       <Key className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
                       <input
                         type="password"
-                        value={llmApiKey}
-                        onChange={(e) => setLlmApiKey(e.target.value)}
-                        placeholder="sk-... o AIza..."
+                        value={primaryApiKey}
+                        onChange={(e) => setPrimaryApiKey(e.target.value)}
+                        placeholder="sk-... o AIza... (Se almacenará cifrada)"
                         className="w-full bg-muted/50 border border-border pl-9 pr-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     </div>
-                    <span className="text-[10px] text-muted-foreground mt-1 block">
-                      Cifrada con AES-256-GCM en la base de datos de tu empresa.
-                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold mb-1">Modelo Seleccionado</label>
+                  {/* Primary Model with Typing Filter */}
+                  <ModelSelect
+                    provider={primaryProvider}
+                    selectedModel={primaryModel}
+                    onSelectModel={(id) => setPrimaryModel(id)}
+                    label="Modelo Principal (Escribe para filtrar opciones)"
+                  />
+                </div>
+              </div>
+
+              {/* CARD 2: FALLBACK MODEL */}
+              <div className="bg-card border border-border rounded-2xl p-6 space-y-5 shadow-sm">
+                <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                  <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                    <span className="h-6 w-6 rounded-full bg-muted text-foreground flex items-center justify-center text-xs font-semibold">
+                      2
+                    </span>
+                    <span>Modelo de Fallback (Respaldo Automático)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Conmutación automática (429 / caídas)</span>
                     <input
-                      type="text"
-                      value={llmModel}
-                      onChange={(e) => setLlmModel(e.target.value)}
-                      placeholder="gemini-1.5-flash"
-                      className="w-full bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      type="checkbox"
+                      checked={autoFallbackEnabled}
+                      onChange={(e) => setAutoFallbackEnabled(e.target.checked)}
+                      className="h-4 w-4 accent-primary cursor-pointer"
                     />
                   </div>
                 </div>
 
-                <div className="pt-2">
-                  <button
-                    onClick={() => triggerNotice("Configuración de IA guardada para toda la empresa")}
-                    className="px-4 py-2 bg-primary text-primary-foreground font-semibold text-xs rounded-lg hover:bg-primary/90 transition-all shadow cursor-pointer"
-                  >
-                    Guardar Configuración de IA
-                  </button>
-                </div>
+                {autoFallbackEnabled ? (
+                  <>
+                    {/* Fallback Provider Selector */}
+                    <div>
+                      <label className="block text-xs font-semibold mb-2 text-muted-foreground">
+                        Proveedor de Fallback
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {(["openai", "gemini", "claude", "openrouter"] as const).map((provKey) => {
+                          const prov = PROVIDER_CATALOG[provKey];
+                          return (
+                            <div
+                              key={provKey}
+                              onClick={() => {
+                                setFallbackProvider(provKey);
+                                setFallbackModel(prov.models[0].id);
+                              }}
+                              className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                                fallbackProvider === provKey
+                                  ? "border-primary bg-primary/10 shadow-sm"
+                                  : "border-border hover:bg-muted/40"
+                              }`}
+                            >
+                              <div className="font-bold text-xs">{prov.displayName}</div>
+                              <div className="text-[10px] text-muted-foreground mt-1 line-clamp-1">
+                                {prov.description}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                      {/* Fallback API Key */}
+                      <div>
+                        <label className="block text-xs font-semibold mb-1 text-muted-foreground">
+                          API Key de Fallback ({PROVIDER_CATALOG[fallbackProvider]?.displayName})
+                        </label>
+                        <div className="relative">
+                          <Key className="h-4 w-4 absolute left-3 top-2.5 text-muted-foreground" />
+                          <input
+                            type="password"
+                            value={fallbackApiKey}
+                            onChange={(e) => setFallbackApiKey(e.target.value)}
+                            placeholder="sk-... o AIza... (Se almacenará cifrada)"
+                            className="w-full bg-muted/50 border border-border pl-9 pr-3 py-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Fallback Model with Typing Filter */}
+                      <ModelSelect
+                        provider={fallbackProvider}
+                        selectedModel={fallbackModel}
+                        onSelectModel={(id) => setFallbackModel(id)}
+                        label="Modelo de Fallback (Escribe para filtrar opciones)"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-4 bg-muted/30 rounded-xl text-xs text-muted-foreground">
+                    El modo de respaldo automático está desactivado. Si el proveedor principal falla o alcanza límites de tasa, las solicitudes de IA retornarán error directamente.
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveLlmConfig}
+                  disabled={isSavingLlm}
+                  className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold text-xs rounded-xl hover:bg-primary/90 transition-all shadow-md cursor-pointer flex items-center gap-2"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>{isSavingLlm ? "Cifrando y Guardando en Supabase..." : "Guardar Configuración en Supabase"}</span>
+                </button>
               </div>
             </div>
           )}
