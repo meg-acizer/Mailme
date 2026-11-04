@@ -36,6 +36,7 @@ import {
   Copy,
   ExternalLink,
   Radio,
+  Terminal,
 } from "lucide-react";
 
 interface TenantUser {
@@ -1029,6 +1030,31 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     onChange={(e) => setTelegramEnabled(e.target.checked)}
                     className="h-4 w-4 accent-primary cursor-pointer"
                   />
+                </div>
+              </div>
+
+              {/* Local Development Notice Banner */}
+              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-foreground space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-blue-500">
+                  <Terminal className="h-4 w-4" />
+                  <span>¿Estás probando en local (localhost)?</span>
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  Telegram requiere una dirección HTTPS pública para los Webhooks. Para recibir y responder mensajes en tu entorno local sin desplegar en Vercel ni usar ngrok, ejecuta este comando en una terminal separada:
+                </p>
+                <div className="p-2 bg-muted/60 rounded-lg font-mono text-[11px] flex items-center justify-between text-foreground">
+                  <span>npm run telegram:poll</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText("npm run telegram:poll");
+                      triggerNotice("Comando copiado");
+                    }}
+                    className="text-primary hover:underline font-sans text-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="h-3 w-3" />
+                    <span>Copiar</span>
+                  </button>
                 </div>
               </div>
 
