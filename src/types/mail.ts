@@ -43,6 +43,13 @@ export interface SendMailParams {
   replyTo?: string;
   inReplyTo?: string;
   references?: string[];
+  attachments?: Array<{
+    filename: string;
+    content?: string | Buffer;
+    path?: string;
+    size?: number;
+    contentType?: string;
+  }>;
 }
 
 export interface ParsedEmailMessage {

@@ -400,6 +400,66 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
     "spam-marketing.net",
   ]);
   const [newBlacklistDomain, setNewBlacklistDomain] = useState("");
+  const [signatureTemplate, setSignatureTemplate] = useState(
+    "--\n{nombre_completo} | {cargo}\nAcme Corp\nT: +54 11 4000-0000 | www.acme.com"
+  );
+  const [isEditingSignature, setIsEditingSignature] = useState(false);
+  const [isSavingPolicies, setIsSavingPolicies] = useState(false);
+
+  // Load Security & Corporate Assets Policies
+  useEffect(() => {
+    async function fetchPolicies() {
+      try {
+        const res = await fetch("/api/tenant/policies?tenantSlug=acme-corp");
+        const json = await res.json();
+        if (json.security) {
+          setOnlyCorporateAccounts(json.security.onlyCorporateAccounts ?? true);
+          setMaxAttachmentSizeMb(json.security.maxAttachmentSizeMb ?? 5);
+          if (Array.isArray(json.security.blacklistDomains)) {
+            setBlacklistDomains(json.security.blacklistDomains);
+          }
+        }
+        if (json.assets?.signatureTemplate) {
+          setSignatureTemplate(json.assets.signatureTemplate);
+        }
+      } catch (e) {
+        console.error("Error loading policies", e);
+      }
+    }
+
+    if (activeTab === "security" || activeTab === "assets") {
+      fetchPolicies();
+    }
+  }, [activeTab]);
+
+  const handleSavePolicies = async (sourceMessage: string) => {
+    setIsSavingPolicies(true);
+    try {
+      const res = await fetch("/api/tenant/policies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "acme-corp",
+          security: {
+            onlyCorporateAccounts,
+            maxAttachmentSizeMb,
+            blacklistDomains,
+          },
+          assets: {
+            signatureTemplate,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error al guardar");
+      triggerNotice(sourceMessage);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al guardar";
+      alert(msg);
+    } finally {
+      setIsSavingPolicies(false);
+    }
+  };
 
   const triggerNotice = (msg: string) => {
     setSaveSuccessNotice(msg);
@@ -1350,6 +1410,19 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     </span>
                   </div>
                 </div>
+
+                {/* Save Security Policies Button */}
+                <div className="flex items-center justify-end pt-3 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => handleSavePolicies("Políticas de seguridad guardadas en Supabase")}
+                    disabled={isSavingPolicies}
+                    className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold text-xs rounded-xl hover:bg-primary/90 transition-all shadow-md cursor-pointer flex items-center gap-2 disabled:opacity-60"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>{isSavingPolicies ? "Guardando..." : "Guardar Políticas de Seguridad"}</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1373,18 +1446,46 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                       Obligatoria
                     </span>
                   </div>
-                  <div className="p-3 bg-muted/40 rounded-lg border border-border/80 text-xs text-muted-foreground font-mono leading-relaxed">
-                    --<br />
-                    <strong>{`{nombre_completo}`}</strong> | {`{cargo}`}<br />
-                    <strong>{tenantName}</strong><br />
-                    T: +54 11 4000-0000 | www.{tenantName.toLowerCase().replace(/\s+/g, "")}.com
+                  {isEditingSignature ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={signatureTemplate}
+                        onChange={(e) => setSignatureTemplate(e.target.value)}
+                        rows={5}
+                        className="w-full bg-muted/50 border border-border p-2 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingSignature(false)}
+                          className="px-3 py-1 rounded text-xs border border-border hover:bg-muted"
+                        >
+                          Listo
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-muted/40 rounded-lg border border-border/80 text-xs text-muted-foreground font-mono whitespace-pre-wrap leading-relaxed">
+                      {signatureTemplate}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSignature(!isEditingSignature)}
+                      className="text-xs font-semibold text-primary hover:underline cursor-pointer"
+                    >
+                      {isEditingSignature ? "Vista previa" : "Editar plantilla de firma"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSavePolicies("Firma corporativa guardada en Supabase")}
+                      disabled={isSavingPolicies}
+                      className="px-3 py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      Guardar Firma
+                    </button>
                   </div>
-                  <button
-                    onClick={() => triggerNotice("Firma corporativa actualizada")}
-                    className="text-xs font-semibold text-primary hover:underline"
-                  >
-                    Editar plantilla de firma
-                  </button>
                 </div>
 
                 {/* Organization Shared Calendar */}
@@ -1402,6 +1503,10 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     <div className="p-2 bg-muted/30 rounded flex justify-between">
                       <span className="font-medium">All-Hands Q4 Review</span>
                       <span className="text-muted-foreground text-[11px]">Viernes 17:00 hs</span>
+                    </div>
+                    <div className="p-2 bg-muted/30 rounded flex justify-between">
+                      <span className="font-medium">Cierre Fiscal Anual</span>
+                      <span className="text-muted-foreground text-[11px]">31 de Diciembre</span>
                     </div>
                   </div>
                 </div>
