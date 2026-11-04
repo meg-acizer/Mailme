@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { dictionaries, type Locale } from "@/lib/i18n/dictionaries";
-import { MailComposer } from "./mail-composer";
+import { MailComposer, type AttachedFile } from "./mail-composer";
 import { CommandPalette } from "./command-palette";
 import { TodayView } from "./views/today-view";
 import { CalendarView } from "./views/calendar-view";
@@ -29,6 +29,11 @@ import {
   Send,
   MoreVertical,
   Reply,
+  ReplyAll,
+  Forward,
+  Printer,
+  Mail,
+  Trash2,
   CheckCircle,
   AlertCircle,
   FileText,
@@ -155,7 +160,16 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
   // Composer Modal State
   const [composerOpen, setComposerOpen] = useState(false);
-  const [composerData, setComposerData] = useState({ to: "", subject: "", body: "" });
+  const [composerData, setComposerData] = useState<{
+    to: string;
+    cc?: string;
+    subject: string;
+    body: string;
+    attachments?: AttachedFile[];
+  }>({ to: "", cc: "", subject: "", body: "", attachments: [] });
+
+  // Dropdown menu state for email actions (Responder a todos, Reenviar, etc.)
+  const [emailActionsMenuOpen, setEmailActionsMenuOpen] = useState(false);
 
   // User Multiple Accounts State
   const [accountsList, setAccountsList] = useState<ConnectedAccount[]>([
@@ -281,9 +295,43 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [composerOpen, isCommandPaletteOpen]);
 
-  const handleOpenComposer = (to = "", subject = "", body = "") => {
-    setComposerData({ to, subject, body });
+  const handleOpenComposer = (
+    to = "",
+    subject = "",
+    body = "",
+    cc = "",
+    attachments: AttachedFile[] = []
+  ) => {
+    setComposerData({ to, subject, body, cc, attachments });
     setComposerOpen(true);
+  };
+
+  const handleReplyAll = (email: EmailItem) => {
+    const otherRecipients = (email.to || []).filter((addr) => addr !== email.senderEmail);
+    const toRecipients = [email.senderEmail, ...otherRecipients].filter(Boolean);
+    const toStr = Array.from(new Set(toRecipients)).join(", ");
+    const ccStr = (email.cc || []).join(", ");
+    const subStr = email.subject.toLowerCase().startsWith("re:") ? email.subject : `Re: ${email.subject}`;
+
+    const bodyQuote = `\n\n-------------------------\nEl ${email.time}, ${email.senderName} <${email.senderEmail}> escribió:\n> Estimado equipo,\n> Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el desglose por rubro y los plazos de entrega estimados para cada entregable.\n> ¿Tendrán disponibilidad el jueves a las 15:00 hs para revisar estos puntos en una llamada de 45 minutos?\n\n`;
+
+    handleOpenComposer(toStr, subStr, bodyQuote, ccStr);
+    setEmailActionsMenuOpen(false);
+  };
+
+  const handleForward = (email: EmailItem) => {
+    const subStr = email.subject.toLowerCase().startsWith("fwd:") || email.subject.toLowerCase().startsWith("rv:")
+      ? email.subject
+      : `Rv: ${email.subject}`;
+
+    const bodyQuote = `\n\n---------- Mensaje reenviado ----------\nDe: ${email.senderName} <${email.senderEmail}>\nFecha: ${email.time}\nAsunto: ${email.subject}\nPara: ${(email.to || []).join(", ")}${email.cc && email.cc.length > 0 ? `\nCC: ${email.cc.join(", ")}` : ""}\n\nEstimado equipo,\n\nAdjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el desglose por rubro y los plazos de entrega estimados para cada entregable.\n\n¿Tendrán disponibilidad el jueves a las 15:00 hs para revisar estos puntos en una llamada de 45 minutos?\n\nSaludos cordiales,\n${email.senderName}\n`;
+
+    const forwardAttachments: AttachedFile[] = [
+      { name: "Presupuesto_Q4_v2.pdf", size: "1.4 MB", type: "application/pdf" }
+    ];
+
+    handleOpenComposer("", subStr, bodyQuote, "", forwardAttachments);
+    setEmailActionsMenuOpen(false);
   };
 
   const handleQuickAction = (actionText: string) => {
@@ -761,16 +809,112 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         <span className="hidden sm:inline">Discutir en Chat</span>
                       </button>
                       <button
-                        onClick={() => handleOpenComposer(selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`)}
+                        onClick={() => handleOpenComposer(
+                          selectedEmail.senderEmail,
+                          `Re: ${selectedEmail.subject}`,
+                          `\n\n-------------------------\nEl ${selectedEmail.time}, ${selectedEmail.senderName} <${selectedEmail.senderEmail}> escribió:\n> Estimado equipo,\n> Adjunto los detalles acordados para la etapa de cierre de año...\n`
+                        )}
                         className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold shadow hover:bg-primary/90 cursor-pointer transition-colors"
                         title="Responder"
                       >
                         <Reply className="h-3.5 w-3.5" />
                         <span>Responder</span>
                       </button>
-                      <button className="p-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground cursor-pointer">
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
+
+                      {/* Dropdown de Más Acciones (Responder a todos, Reenviar...) */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setEmailActionsMenuOpen((prev) => !prev)}
+                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                            emailActionsMenuOpen
+                              ? "bg-muted text-foreground border-primary"
+                              : "border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground"
+                          }`}
+                          title="Más opciones: Responder a todos, Reenviar"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </button>
+
+                        {emailActionsMenuOpen && (
+                          <>
+                            {/* Backdrop para cerrar al hacer clic fuera */}
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setEmailActionsMenuOpen(false)}
+                            />
+                            {/* Menú Flotante */}
+                            <div className="absolute right-0 top-full mt-1.5 z-50 w-60 bg-card border border-border rounded-xl shadow-2xl py-1.5 text-xs animate-in fade-in zoom-in-95 backdrop-blur-md">
+                              <button
+                                type="button"
+                                onClick={() => handleReplyAll(selectedEmail)}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-foreground transition-colors cursor-pointer group"
+                              >
+                                <ReplyAll className="h-4 w-4 text-primary shrink-0 group-hover:scale-110 transition-transform" />
+                                <div>
+                                  <div className="font-semibold text-foreground">Responder a todos</div>
+                                  <div className="text-[10px] text-muted-foreground">Incluye remitente y a todos en copia</div>
+                                </div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleForward(selectedEmail)}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-foreground transition-colors cursor-pointer group"
+                              >
+                                <Forward className="h-4 w-4 text-blue-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                <div>
+                                  <div className="font-semibold text-foreground">Reenviar</div>
+                                  <div className="text-[10px] text-muted-foreground">Reenvía correo con adjuntos</div>
+                                </div>
+                              </button>
+
+                              <div className="h-px bg-border my-1" />
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActionNotice("Correo marcado como no leído");
+                                  setEmailActionsMenuOpen(false);
+                                  setTimeout(() => setActionNotice(null), 3000);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              >
+                                <Mail className="h-4 w-4 shrink-0" />
+                                <span>Marcar como no leído</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailActionsMenuOpen(false);
+                                  window.print();
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                              >
+                                <Printer className="h-4 w-4 shrink-0" />
+                                <span>Imprimir correo</span>
+                              </button>
+
+                              <div className="h-px bg-border my-1" />
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEmailsList((prev) => prev.filter((e) => e.id !== selectedEmail.id));
+                                  setActionNotice("Correo movido a la papelera");
+                                  setEmailActionsMenuOpen(false);
+                                  setTimeout(() => setActionNotice(null), 3000);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-destructive/10 text-destructive transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4 shrink-0" />
+                                <span>Eliminar correo</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1013,8 +1157,10 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         isOpen={composerOpen}
         onClose={() => setComposerOpen(false)}
         initialTo={composerData.to}
+        initialCc={composerData.cc}
         initialSubject={composerData.subject}
         initialBody={composerData.body}
+        initialAttachments={composerData.attachments}
         accounts={accountsList}
         onSaveContact={(email) => handleSaveContact(email)}
         onSendSuccess={(msg) => {

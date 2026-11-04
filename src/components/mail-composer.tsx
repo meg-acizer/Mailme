@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   X,
   Maximize2,
@@ -50,8 +50,10 @@ interface MailComposerProps {
   onClose: () => void;
   accounts?: AccountOption[];
   initialTo?: string;
+  initialCc?: string;
   initialSubject?: string;
   initialBody?: string;
+  initialAttachments?: AttachedFile[];
   onSendSuccess?: (details: string) => void;
   onSaveContact?: (email: string) => void;
 }
@@ -61,8 +63,10 @@ export function MailComposer({
   onClose,
   accounts = DEFAULT_ACCOUNTS,
   initialTo = "",
+  initialCc = "",
   initialSubject = "",
   initialBody = "",
+  initialAttachments = [],
   onSendSuccess,
   onSaveContact,
 }: MailComposerProps) {
@@ -70,9 +74,9 @@ export function MailComposer({
   
   // Recipients
   const [to, setTo] = useState(initialTo);
-  const [cc, setCc] = useState("");
+  const [cc, setCc] = useState(initialCc);
   const [bcc, setBcc] = useState("");
-  const [showCc, setShowCc] = useState(false);
+  const [showCc, setShowCc] = useState(Boolean(initialCc));
   const [showBcc, setShowBcc] = useState(false);
 
   // Subject and Body
@@ -87,7 +91,7 @@ export function MailComposer({
   const [showTagDropdown, setShowTagDropdown] = useState(false);
 
   // Attachments
-  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const [attachments, setAttachments] = useState<AttachedFile[]>(initialAttachments);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Window State
@@ -97,6 +101,22 @@ export function MailComposer({
   const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [contactCreatedNotice, setContactCreatedNotice] = useState<string | null>(null);
+
+  // Sincronizar estado cuando se abre el compositor o cambian los valores iniciales (ej. Responder a todos o Reenviar)
+  useEffect(() => {
+    if (isOpen) {
+      setTo(initialTo || "");
+      setCc(initialCc || "");
+      if (initialCc) setShowCc(true);
+      setSubject(initialSubject || "");
+      setBody(initialBody || "");
+      if (initialAttachments && initialAttachments.length > 0) {
+        setAttachments(initialAttachments);
+      } else {
+        setAttachments([]);
+      }
+    }
+  }, [isOpen, initialTo, initialCc, initialSubject, initialBody, initialAttachments]);
 
   if (!isOpen) return null;
 
