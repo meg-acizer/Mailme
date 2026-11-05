@@ -1,7 +1,16 @@
-<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="32" rx="8" fill="#0f172a" />
-  <rect x="5" y="11" width="22" height="15" rx="3" fill="#1e293b" stroke="#f8fafc" stroke-width="1.6" />
-  <path d="M5.5 12.5L16 6.5L26.5 12.5" stroke="#f8fafc" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="M5.5 13L16 20L26.5 13" stroke="#94a3b8" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-  <circle cx="16" cy="6.5" r="2.5" fill="#3b82f6" stroke="#0f172a" stroke-width="1" />
+<svg width="36" height="32" viewBox="0 0 36 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo de contraste redondeado para favicons oscuros y claros -->
+  <rect width="36" height="32" rx="7" fill="#0f172a" />
+  
+  <!-- Nodo circular azul cobalto -->
+  <circle cx="18" cy="8.5" r="4.2" fill="#2563eb" />
+  
+  <!-- Pliegue interior inferior -->
+  <path d="M4.5 25.5L18 16.5L31.5 25.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Pliegue superior en V -->
+  <path d="M4.5 8.5L18 19.5L31.5 8.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Contorno exterior -->
+  <path d="M4.5 8.5V25.5H31.5V8.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
 </svg>
