@@ -5,6 +5,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 export const metadata: Metadata = {
   title: "Worvanta — Espacio de Trabajo Inteligente y Colaborativo",
   description: "Entorno unificado de correo, calendario, chat de equipo y automatización con IA",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

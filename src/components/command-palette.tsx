@@ -70,7 +70,7 @@ export function CommandPalette({
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center pt-24 p-4 animate-in fade-in duration-150">
       <div className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <Command
-          label="Paleta de Comandos de MailMe"
+          label="Paleta de Comandos de Worvanta"
           className="w-full bg-transparent flex flex-col"
         >
           {/* Search Input Bar */}
@@ -269,7 +269,7 @@ export function CommandPalette({
           {/* Footer info */}
           <div className="p-2 border-t border-border/60 bg-muted/20 px-4 flex items-center justify-between text-[11px] text-muted-foreground">
             <span>Navega con flechas ↑ ↓ y Enter para ejecutar</span>
-            <span className="font-mono">MailMe Omnibox</span>
+            <span className="font-mono">Worvanta Omnibox</span>
           </div>
         </Command>
       </div>

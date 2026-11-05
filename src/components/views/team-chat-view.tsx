@@ -68,7 +68,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
     id: "m3",
     senderName: "Tú",
     time: "10:20 AM",
-    text: "Excelente. Usaré la IA de MailMe para redactar la respuesta aprobatoria con las condiciones estipuladas.",
+    text: "Excelente. Usaré la IA de Worvanta para redactar la respuesta aprobatoria con las condiciones estipuladas.",
     isSelf: true,
   },
 ];

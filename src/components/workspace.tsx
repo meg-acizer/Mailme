@@ -10,6 +10,7 @@ import { CalendarView } from "./views/calendar-view";
 import { TeamChatView } from "./views/team-chat-view";
 import { ContactsView } from "./views/contacts-view";
 import { AccountManagerModal, type ConnectedAccount } from "./account-manager-modal";
+import { WorvantaLogo } from "./ui/worvanta-logo";
 import {
   Inbox,
   Calendar,
@@ -364,21 +365,14 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       {/* 1. LEFT NAVIGATION SIDEBAR */}
       <aside className="w-64 border-r border-border flex flex-col justify-between bg-card/60 backdrop-blur-md">
         <div>
-          {/* Tenant / Company Header */}
+          {/* Brand & Workspace Header */}
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center font-bold text-base">
-                M
-              </div>
-              <div>
-                <h1 className="font-semibold text-xs tracking-wide uppercase text-muted-foreground">
-                  Tenant
-                </h1>
-                <p className="font-medium text-sm flex items-center gap-1.5 truncate">
-                  <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="truncate">{user?.tenantName || "Acme Corp"}</span>
-                </p>
-              </div>
+            <WorvantaLogo size={28} showWordmark={true} wordmarkClassName="font-bold text-base tracking-tight text-foreground" />
+            <div className="text-right pl-2">
+              <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider block">Workspace</span>
+              <span className="text-xs font-semibold text-foreground truncate max-w-[85px] block" title={user?.tenantName || "Acme Corp"}>
+                {user?.tenantName || "Acme Corp"}
+              </span>
             </div>
           </div>
 

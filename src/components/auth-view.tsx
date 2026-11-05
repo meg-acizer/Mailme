@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Building2, Mail, Lock, User, ArrowRight, Sparkles, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { WorvantaLogo } from "./ui/worvanta-logo";
 
 interface AuthUser {
   id: string;
@@ -134,12 +135,12 @@ export function AuthView({ onSuccess }: AuthViewProps) {
     <div className="min-h-screen w-screen flex flex-col justify-center items-center bg-background text-foreground p-4">
       {/* Brand Header */}
       <div className="flex flex-col items-center mb-8 text-center">
-        <div className="h-12 w-12 rounded-2xl bg-primary/20 text-primary flex items-center justify-center font-bold text-2xl shadow-lg mb-3">
-          M
+        <div className="p-3 rounded-2xl bg-muted/40 border border-border shadow-md mb-3 flex items-center justify-center">
+          <WorvantaLogo size={44} showWordmark={false} />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">MailMe Workspace</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Worvanta</h1>
         <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-          Correo unificado, multi-calendario y colaboración con IA integrada.
+          Espacio de trabajo inteligente y compartido: correo unificado, multi-calendario y colaboración con IA.
         </p>
       </div>
 

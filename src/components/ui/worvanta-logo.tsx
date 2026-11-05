@@ -11,11 +11,11 @@ export function WorvantaLogo({
   className = "",
   size = 28,
   showWordmark = true,
-  wordmarkClassName = "text-base font-bold tracking-tight text-foreground",
+  wordmarkClassName = "text-base font-bold tracking-tight text-foreground font-sans",
 }: WorvantaLogoProps) {
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
-      {/* Isotipo: Sobre semi-abierto sobrio con hoja de trabajo y acento sutil */}
+      {/* Isotipo Worvanta Opción 3: Sobre geométrico semi-abierto con pliegue limpio y nodo de conexión */}
       <svg
         width={size}
         height={size}
@@ -24,37 +24,57 @@ export function WorvantaLogo({
         xmlns="http://www.w3.org/2000/svg"
         className="shrink-0"
       >
-        {/* Hoja de trabajo que emerge del sobre */}
-        <path
-          d="M8 13V6.5C8 5.67 8.67 5 9.5 5H22.5C23.33 5 24 5.67 24 6.5V13"
-          className="stroke-foreground/70"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <line x1="12" y1="8.5" x2="20" y2="8.5" className="stroke-foreground/40" strokeWidth="1.5" strokeLinecap="round" />
-
-        {/* Cuerpo del sobre semi-abierto */}
+        {/* Cuerpo del sobre */}
         <rect
-          x="3.5"
-          y="10.5"
-          width="25"
-          height="17"
-          rx="3"
-          className="fill-card stroke-foreground"
-          strokeWidth="1.8"
+          x="3"
+          y="8.5"
+          width="26"
+          height="18"
+          rx="3.5"
+          className="fill-muted/20 stroke-foreground"
+          strokeWidth="1.75"
         />
 
-        {/* Pliegue semi-abierto del sobre */}
+        {/* Solapa semi-abierta hacia arriba */}
         <path
-          d="M4.5 12L16 19.5L27.5 12"
+          d="M3.5 10L16 4.5L28.5 10"
           className="stroke-foreground"
-          strokeWidth="1.8"
+          strokeWidth="1.75"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
 
-        {/* Punto / Acento sutil corporativo */}
-        <circle cx="24.5" cy="7.5" r="2" className="fill-primary" />
+        {/* Pliegue interior geométrico */}
+        <path
+          d="M3.5 10.5L16 18.5L28.5 10.5"
+          className="stroke-foreground/60"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Pliegues sutiles de esquina */}
+        <path
+          d="M3.5 26L11.5 18"
+          className="stroke-foreground/25"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
+        <path
+          d="M28.5 26L20.5 18"
+          className="stroke-foreground/25"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
+
+        {/* Nodo circular de conexión (Espacio Compartido e Inteligente) */}
+        <circle
+          cx="16"
+          cy="4.5"
+          r="2.5"
+          className="fill-blue-600 dark:fill-blue-400 stroke-background"
+          strokeWidth="1"
+        />
       </svg>
 
       {showWordmark && (

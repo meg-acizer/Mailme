@@ -77,7 +77,7 @@ export function TodayView({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider">
               <Sparkles className="h-4 w-4" />
-              <span>Morning Briefing • Asistente MailMe IA</span>
+              <span>Morning Briefing • Asistente Worvanta IA</span>
             </div>
             <button
               onClick={handleRefreshBriefing}

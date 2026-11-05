@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ModelSelect } from "./ui/model-select";
+import { WorvantaLogo } from "./ui/worvanta-logo";
 import { PROVIDER_CATALOG, type ModelOption } from "@/lib/ai/providers";
 import {
   Building2,
@@ -527,17 +528,12 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
         <div>
           {/* Header */}
           <div className="p-4 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold text-base">
-                <Building2 className="h-4 w-4" />
-              </div>
-              <div>
-                <h1 className="font-bold text-xs uppercase tracking-wider text-primary">
-                  Admin del Tenant
-                </h1>
-                <p className="font-semibold text-sm truncate max-w-[130px]">{tenantName}</p>
-              </div>
+            <div className="flex items-center gap-2">
+              <WorvantaLogo size={26} showWordmark={true} wordmarkClassName="font-bold text-sm tracking-tight text-foreground" />
             </div>
+            <span className="text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded font-semibold">
+              Admin
+            </span>
           </div>
 
           {/* Navigation Links */}

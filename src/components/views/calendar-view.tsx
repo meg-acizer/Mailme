@@ -84,7 +84,7 @@ export function CalendarView() {
   const [newEventAccount, setNewEventAccount] = useState("corporativo@empresa.com");
 
   const handleCopyBookingLink = () => {
-    navigator.clipboard.writeText("https://mailme.app/book/mi-organizacion/mgonzalez");
+    navigator.clipboard.writeText("https://worvanta.app/book/mi-organizacion/mgonzalez");
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -189,7 +189,7 @@ export function CalendarView() {
                 <div>
                   <h2 className="text-lg font-bold text-foreground">Motor Nativo de Disponibilidad</h2>
                   <p className="text-sm text-muted-foreground">
-                    Comparte tu enlace de reservas estilo Calendly 100% autohospedado en MailMe sin depender de servicios externos.
+                    Comparte tu enlace de reservas estilo Calendly 100% autohospedado en Worvanta sin depender de servicios externos.
                   </p>
                 </div>
                 <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500">
@@ -200,7 +200,7 @@ export function CalendarView() {
               <div className="p-3.5 rounded-lg bg-muted/50 border border-border flex items-center justify-between">
                 <div className="flex items-center space-x-2 text-sm font-mono text-foreground truncate">
                   <LinkIcon className="h-4 w-4 text-primary shrink-0" />
-                  <span className="truncate">https://mailme.app/book/mi-organizacion/mgonzalez</span>
+                  <span className="truncate">https://worvanta.app/book/mi-organizacion/mgonzalez</span>
                 </div>
                 <button
                   onClick={handleCopyBookingLink}
