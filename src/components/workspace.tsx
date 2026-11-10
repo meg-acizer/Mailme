@@ -9,6 +9,8 @@ import { TodayView } from "./views/today-view";
 import { CalendarView } from "./views/calendar-view";
 import { TeamChatView } from "./views/team-chat-view";
 import { ContactsView } from "./views/contacts-view";
+import { TasksView } from "./views/tasks-view";
+import { FilesView } from "./views/files-view";
 import { AccountManagerModal, type ConnectedAccount } from "./account-manager-modal";
 import { WorvantaLogo } from "./ui/worvanta-logo";
 import {
@@ -660,6 +662,16 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
               </button>
 
               <button
+                onClick={() => setActiveModule("files")}
+                className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                  activeModule === "files" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                }`}
+                title="Archivos"
+              >
+                <FolderOpen className="h-4 w-4" />
+              </button>
+
+              <button
                 onClick={() => setActiveModule("chat")}
                 className={`p-2 rounded-lg transition-colors cursor-pointer ${
                   activeModule === "chat" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
@@ -1249,6 +1261,29 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           <TeamChatView />
         ) : activeModule === "contacts" ? (
           <ContactsView />
+        ) : activeModule === "tasks" ? (
+          <TasksView
+            onNavigateToMail={(emailId) => {
+              setActiveModule("mail");
+              if (emailId) {
+                const found = mockEmails.find((m) => m.id === emailId);
+                if (found) setSelectedEmail(found);
+              }
+            }}
+          />
+        ) : activeModule === "files" ? (
+          <FilesView
+            onNavigateToMail={(emailId) => {
+              setActiveModule("mail");
+              if (emailId) {
+                const found = mockEmails.find((m) => m.id === emailId);
+                if (found) setSelectedEmail(found);
+              }
+            }}
+            onOpenComposerWithAttachment={(attachment) => {
+              handleOpenComposer("", "", "", "", [attachment]);
+            }}
+          />
         ) : (
           <div className="flex-1 flex min-h-0 overflow-hidden relative">
             {/* Columna 2: Lista de Correos (Ajustable y Cerrable) */}
