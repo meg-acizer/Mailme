@@ -233,6 +233,7 @@ export interface WorkspaceUser {
   email: string;
   name: string;
   tenantName: string;
+  role?: string;
 }
 
 interface WorkspaceProps {
@@ -1291,6 +1292,11 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           />
         ) : activeModule === "files" ? (
           <FilesView
+            currentUser={{
+              name: user?.name || "meg-acizer",
+              email: user?.email || "meg@worvanta.io",
+              role: user?.role || "admin",
+            }}
             onNavigateToMail={(emailId) => {
               setActiveModule("mail");
               if (emailId) {
