@@ -60,6 +60,7 @@ import {
   Columns,
   X,
   Archive,
+  ExternalLink,
 } from "lucide-react";
 
 interface EmailItem {
@@ -297,6 +298,23 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   ]);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
   const [contactSavedNotice, setContactSavedNotice] = useState<string | null>(null);
+  const [floatingModalEmail, setFloatingModalEmail] = useState<EmailItem | null>(null);
+
+  const handleOpenInFloatingWindow = (email: EmailItem) => {
+    try {
+      localStorage.setItem("worvanta_floating_email", JSON.stringify(email));
+      const popout = window.open(
+        "/popout",
+        `Worvanta_Popout_${email.id}`,
+        "width=980,height=840,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes"
+      );
+      if (!popout || popout.closed || typeof popout.closed === "undefined") {
+        setFloatingModalEmail(email);
+      }
+    } catch (e) {
+      setFloatingModalEmail(email);
+    }
+  };
 
   const t = dictionaries[locale];
 
@@ -1469,6 +1487,15 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         >
                           {isTriaging ? "..." : "Re-analizar"}
                         </button>
+                        <div className="h-3 w-px bg-border/80 shrink-0 mx-0.5" />
+                        <button
+                          onClick={() => handleOpenInFloatingWindow(selectedEmail)}
+                          className="px-2 py-0.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/80 transition-colors shrink-0 flex items-center gap-1.5 text-[11px] font-semibold border border-transparent hover:border-border cursor-pointer"
+                          title="Abrir correo en una página nueva flotante"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 text-primary" />
+                          <span className="hidden sm:inline">Ventana Flotante</span>
+                        </button>
                       </div>
                     </div>
 
@@ -1938,6 +1965,104 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           setTimeout(() => setActionNotice(null), 4000);
         }}
       />
+
+      {/* In-App Floating Email Modal Fallback */}
+      {floatingModalEmail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 sm:p-6 animate-fadeIn">
+          <div className="w-full max-w-4xl max-h-[90vh] bg-card text-foreground border border-border shadow-2xl rounded-2xl overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-3 bg-muted/40 border-b border-border flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <WorvantaLogo size={22} showWordmark={true} wordmarkClassName="font-bold text-xs" />
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-primary/10 text-primary">
+                  Ventana Flotante
+                </span>
+                <span
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
+                  style={{ backgroundColor: floatingModalEmail.account.color }}
+                >
+                  {floatingModalEmail.account.name}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const pop = window.open(
+                      "/popout",
+                      `Worvanta_Popout_${floatingModalEmail.id}`,
+                      "width=980,height=840,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes"
+                    );
+                    if (pop) setFloatingModalEmail(null);
+                  }}
+                  className="px-2.5 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Abrir en ventana independiente del navegador"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Desacoplar a ventana</span>
+                </button>
+                <button
+                  onClick={() => setFloatingModalEmail(null)}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                  title="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Document */}
+            <div className="flex-1 overflow-y-auto p-6 bg-muted/20">
+              <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+                <div className="px-6 py-2.5 bg-muted/30 border-b border-border/60 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">
+                      {floatingModalEmail.priority === "high" ? "🔴 Alta Prioridad" : "⚪ Normal"}
+                    </span>
+                    <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded text-[11px] font-medium border border-emerald-500/20">
+                      SPF/DKIM Verificado
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-primary text-[11px]">
+                    <Sparkles className="h-3 w-3" />
+                    <span className="text-muted-foreground truncate max-w-sm">{floatingModalEmail.aiSummary}</span>
+                  </div>
+                </div>
+
+                <div className="p-6 border-b border-border/60">
+                  <h2 className="text-xl font-bold text-foreground mb-3">{floatingModalEmail.subject}</h2>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>De: <strong className="text-foreground">{floatingModalEmail.senderName}</strong> &lt;{floatingModalEmail.senderEmail}&gt;</div>
+                    {floatingModalEmail.to && <div>Para: {floatingModalEmail.to.join(", ")}</div>}
+                    {floatingModalEmail.cc && <div>CC: {floatingModalEmail.cc.join(", ")}</div>}
+                  </div>
+                </div>
+
+                <div className="p-6 text-sm text-foreground space-y-4">
+                  <p>Estimado equipo,</p>
+                  <p>
+                    Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el desglose por rubro y los plazos de entrega estimados para cada entregable.
+                  </p>
+                  <p>
+                    ¿Tendrán disponibilidad el <strong>jueves a las 15:00 hs</strong> para revisar estos puntos en una llamada de 45 minutos?
+                  </p>
+                  <p className="pt-2">Saludos cordiales,<br /><strong>{floatingModalEmail.senderName}</strong></p>
+                </div>
+
+                {floatingModalEmail.attachments && floatingModalEmail.attachments.length > 0 && (
+                  <div className="p-4 bg-muted/30 border-t border-border flex items-center justify-between text-xs">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <Paperclip className="h-3.5 w-3.5 text-primary" />
+                      {floatingModalEmail.attachments[0].name} ({floatingModalEmail.attachments[0].size})
+                    </span>
+                    <span className="text-emerald-500 font-medium">ClamAV: Limpio</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Universal Command Palette (Cmd+K / Ctrl+K) */}
       <CommandPalette
