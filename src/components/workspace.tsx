@@ -1279,7 +1279,15 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         ) : activeModule === "chat" ? (
           <TeamChatView />
         ) : activeModule === "contacts" ? (
-          <ContactsView />
+          <ContactsView
+            currentUser={{
+              name: user?.name || "meg-acizer",
+              email: user?.email || "meg@worvanta.io",
+              role: user?.role || "admin",
+            }}
+            onOpenComposer={(to, sub) => handleOpenComposer(to, sub)}
+            onNavigateToChat={() => setActiveModule("chat")}
+          />
         ) : activeModule === "tasks" ? (
           <TasksView
             onNavigateToMail={(emailId) => {
