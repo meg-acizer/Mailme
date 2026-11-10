@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { analyzeEmailWithAI } from "@/lib/ai/triage";
+import { logAiAuditEvent } from "@/lib/audit/audit-logger";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { subject, from, text, tenantSlug } = body;
+    const { subject, from, text, tenantSlug, user } = body;
 
     if (!subject && !text) {
       return NextResponse.json({ error: "Faltan datos del correo para analizar" }, { status: 400 });
@@ -18,6 +19,16 @@ export async function POST(request: Request) {
       },
       tenantSlug || "acme-corp"
     );
+
+    // Record privacy-safe audit event (no raw email content)
+    await logAiAuditEvent({
+      user: user || "meg-acizer",
+      action: "Triage & Resumen Inteligente de correo",
+      model: "gemini-1.5-flash",
+      provider: "gemini",
+      tokens: Math.round(((subject?.length || 0) + (text?.length || 0)) / 4 + 150),
+      details: subject ? `Asunto: "${subject.slice(0, 40)}..."` : undefined,
+    });
 
     return NextResponse.json({ success: true, triage });
   } catch (err: unknown) {

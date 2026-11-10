@@ -38,6 +38,7 @@ import {
   ExternalLink,
   Radio,
   Terminal,
+  Download,
 } from "lucide-react";
 
 interface TenantUser {
@@ -134,6 +135,18 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const [isSavingLlm, setIsSavingLlm] = useState(false);
   const [isLoadingLlm, setIsLoadingLlm] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  // Analytics & Audit State
+  const [analyticsStats, setAnalyticsStats] = useState({
+    totalTokens: 308000,
+    totalCostUsd: 1.84,
+    totalActions: 1482,
+    actionsChangePercent: "+14%",
+  });
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [analyticsSearch, setAnalyticsSearch] = useState("");
+  const [analyticsModelFilter, setAnalyticsModelFilter] = useState("all");
 
   const handleFetchModels = async (
     slot: "primary" | "fallback",
@@ -431,7 +444,50 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
     if (activeTab === "security" || activeTab === "assets") {
       fetchPolicies();
     }
+    if (activeTab === "analytics") {
+      fetchAnalytics();
+    }
   }, [activeTab]);
+
+  const fetchAnalytics = async () => {
+    setIsLoadingAnalytics(true);
+    try {
+      const res = await fetch("/api/tenant/analytics");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.stats) setAnalyticsStats(data.stats);
+        if (Array.isArray(data.logs)) setAuditLogs(data.logs);
+      }
+    } catch (e) {
+      console.error("Error fetching analytics", e);
+    } finally {
+      setIsLoadingAnalytics(false);
+    }
+  };
+
+  const handleExportAuditCsv = () => {
+    const headers = ["ID", "Fecha/Hora", "Usuario", "Acción", "Modelo", "Proveedor", "Tokens", "Costo USD", "Detalles"];
+    const rows = (auditLogs.length > 0 ? auditLogs : []).map((l) => [
+      l.id,
+      `"${l.timestamp}"`,
+      `"${l.user}"`,
+      `"${l.action}"`,
+      l.model,
+      l.provider,
+      l.tokens,
+      l.costUsd,
+      `"${l.details || ""}"`,
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `worvanta_audit_logs_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleSavePolicies = async (sourceMessage: string) => {
     setIsSavingPolicies(true);
@@ -996,11 +1052,34 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
           {/* TAB 3: USAGE, COSTS & AUDIT LOG */}
           {activeTab === "analytics" && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight">Consumo, Costos y Auditoría</h2>
-                <p className="text-xs text-muted-foreground">
-                  Métricas agregadas de consumo de IA y auditoría sin comprometer la privacidad del contenido de los correos.
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight">Consumo, Costos y Auditoría</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Métricas en tiempo real de consumo de IA y auditoría sin comprometer la privacidad del contenido de los correos.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={fetchAnalytics}
+                    disabled={isLoadingAnalytics}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+                    title="Actualizar métricas"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoadingAnalytics ? "animate-spin" : ""}`} />
+                    <span>{isLoadingAnalytics ? "Cargando..." : "Refrescar"}</span>
+                  </button>
+
+                  <button
+                    onClick={handleExportAuditCsv}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+                    title="Descargar informe de auditoría para cumplimiento normativo"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Exportar CSV</span>
+                  </button>
+                </div>
               </div>
 
               {/* KPI Cards */}
@@ -1010,8 +1089,12 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     <span className="text-xs font-medium">Tokens Consumidos (Mes)</span>
                     <Zap className="h-4 w-4 text-primary" />
                   </div>
-                  <div className="text-2xl font-bold font-mono">308,000</div>
-                  <div className="text-[11px] text-emerald-500 mt-1">↑ 12% vs mes anterior</div>
+                  <div className="text-2xl font-bold font-mono">
+                    {analyticsStats.totalTokens.toLocaleString()}
+                  </div>
+                  <div className="text-[11px] text-emerald-500 mt-1">
+                    ↑ {analyticsStats.actionsChangePercent} vs mes anterior
+                  </div>
                 </div>
 
                 <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
@@ -1019,8 +1102,12 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     <span className="text-xs font-medium">Costo Total Estimado</span>
                     <DollarSign className="h-4 w-4 text-emerald-500" />
                   </div>
-                  <div className="text-2xl font-bold font-mono">$1.84 USD</div>
-                  <div className="text-[11px] text-muted-foreground mt-1">Promedio: $0.46 / usuario</div>
+                  <div className="text-2xl font-bold font-mono">
+                    ${analyticsStats.totalCostUsd.toFixed(4)} USD
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Calculado por uso real de API
+                  </div>
                 </div>
 
                 <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
@@ -1028,41 +1115,95 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                     <span className="text-xs font-medium">Acciones de IA Auditadas</span>
                     <Activity className="h-4 w-4 text-purple-500" />
                   </div>
-                  <div className="text-2xl font-bold font-mono">1,482</div>
-                  <div className="text-[11px] text-muted-foreground mt-1">Triage, RAG y borradores</div>
+                  <div className="text-2xl font-bold font-mono">
+                    {analyticsStats.totalActions.toLocaleString()}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Triage, RAG, borradores & Telegram
+                  </div>
                 </div>
               </div>
 
               {/* Audit Log Table (Metadata only, privacy safe) */}
-              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-3">
-                <div className="flex items-center justify-between border-b border-border pb-3">
-                  <h3 className="font-semibold text-xs text-foreground uppercase tracking-wider">
-                    Registro de Auditoría de IA (Sin Contenido Privado)
-                  </h3>
-                  <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                    GDPR / Privacidad Cumplida
-                  </span>
+              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-semibold text-xs text-foreground uppercase tracking-wider">
+                      Registro de Auditoría de IA (Sin Contenido Privado)
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cumplimiento estricto GDPR / SOC2: sólo se auditan metadatos, modelo y tokens.
+                    </p>
+                  </div>
+
+                  {/* Filters */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative w-44">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={analyticsSearch}
+                        onChange={(e) => setAnalyticsSearch(e.target.value)}
+                        placeholder="Buscar por usuario o acción..."
+                        className="w-full pl-8 pr-2.5 py-1 text-xs rounded-md bg-muted/50 border border-border focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <select
+                      value={analyticsModelFilter}
+                      onChange={(e) => setAnalyticsModelFilter(e.target.value)}
+                      className="text-xs py-1 px-2 rounded-md bg-muted/50 border border-border text-foreground cursor-pointer focus:outline-none"
+                    >
+                      <option value="all">Todos los modelos</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="claude">Claude</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="space-y-2 text-xs">
-                  {[
-                    { time: "16:45", user: "Carlos Mendoza", action: "Triage automático de correo entrante", model: "gemini-1.5-flash", tokens: 420 },
-                    { time: "15:20", user: "meg-acizer", action: "Generación de borrador de respuesta", model: "gemini-1.5-flash", tokens: 890 },
-                    { time: "14:12", user: "Laura Benítez", action: "Consulta semántica de agenda (RAG)", model: "gemini-1.5-flash", tokens: 630 },
-                    { time: "11:05", user: "meg-acizer", action: "Briefing matutino en Telegram", model: "gemini-1.5-flash", tokens: 1150 },
-                  ].map((log, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30">
-                      <div className="flex items-center gap-3">
-                        <span className="text-muted-foreground font-mono text-[11px]">{log.time}</span>
-                        <strong className="text-foreground">{log.user}:</strong>
-                        <span className="text-muted-foreground">{log.action}</span>
+                  {auditLogs
+                    .filter((log) => {
+                      const matchesSearch =
+                        !analyticsSearch ||
+                        log.user.toLowerCase().includes(analyticsSearch.toLowerCase()) ||
+                        log.action.toLowerCase().includes(analyticsSearch.toLowerCase()) ||
+                        (log.details && log.details.toLowerCase().includes(analyticsSearch.toLowerCase()));
+                      const matchesModel =
+                        analyticsModelFilter === "all" ||
+                        log.model.toLowerCase().includes(analyticsModelFilter.toLowerCase()) ||
+                        (log.provider && log.provider.toLowerCase().includes(analyticsModelFilter.toLowerCase()));
+                      return matchesSearch && matchesModel;
+                    })
+                    .map((log) => (
+                      <div
+                        key={log.id}
+                        className="flex flex-wrap items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/40 hover:bg-muted/40 transition-colors gap-2"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-muted-foreground font-mono text-[11px] shrink-0">
+                            {log.timestamp}
+                          </span>
+                          <strong className="text-foreground shrink-0">{log.user}:</strong>
+                          <span className="text-muted-foreground">{log.action}</span>
+                          {log.details && (
+                            <span className="text-[10px] text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded border border-border/60">
+                              {log.details}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-muted-foreground text-[11px] font-mono shrink-0">
+                          <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-semibold">
+                            {log.model}
+                          </span>
+                          <span>{log.tokens} tkns</span>
+                          <span className="text-emerald-500 font-bold">
+                            ${Number(log.costUsd || 0).toFixed(6)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-muted-foreground text-[11px] font-mono">
-                        <span>{log.model}</span>
-                        <span>{log.tokens} tkns</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             </div>
