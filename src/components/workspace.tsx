@@ -1275,7 +1275,13 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             onOpenComposer={(to, sub) => handleOpenComposer(to, sub)}
           />
         ) : activeModule === "calendar" ? (
-          <CalendarView />
+          <CalendarView
+            currentUser={{
+              name: user?.name || "meg-acizer",
+              email: user?.email || "meg@worvanta.io",
+              role: user?.role || "admin",
+            }}
+          />
         ) : activeModule === "chat" ? (
           <TeamChatView />
         ) : activeModule === "contacts" ? (
