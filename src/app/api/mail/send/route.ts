@@ -87,39 +87,102 @@ export async function POST(request: Request) {
     const decryptedJson = decryptCredentials(account.credentials_encrypted);
     const credentials: AccountCredentials = JSON.parse(decryptedJson);
 
-    if (credentials.provider === "imap_smtp" && credentials.smtp) {
-      const fromHeader = `"${account.display_name || account.email_address}" <${account.email_address}>`;
+    let messageId = `<worvanta-${Date.now()}@worvanta.io>`;
+    const fromHeader = `"${account.display_name || account.email_address}" <${account.email_address}>`;
+
+    if (credentials.smtp) {
+      // Works for imap_smtp, Google App Password (smtp.gmail.com), or Microsoft 365 SMTP (smtp.office365.com)
       const result = await sendMailViaSmtp(
         credentials.smtp,
         { accountId, to, cc, bcc, subject, text: finalText, html: finalHtml },
         fromHeader
       );
-
-      // Save a local record of the sent email in Supabase
-      await supabase.from("emails").insert({
-        tenant_id: account.tenant_id,
-        account_id: account.id,
-        remote_msg_id: result.messageId,
-        from_address: account.email_address,
-        from_name: account.display_name,
-        to_addresses: to,
-        cc_addresses: cc || [],
-        subject,
-        body_text: finalText,
-        body_html_sanitized: finalHtml,
-        date: new Date().toISOString(),
-        is_read: true,
-        triage_class: "info",
-        spf_dkim_status: "verified",
+      messageId = result.messageId;
+    } else if (credentials.provider === "microsoft" && credentials.oauth?.accessToken) {
+      // Microsoft Graph API SendMail
+      const graphRes = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credentials.oauth.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: {
+            subject,
+            body: {
+              contentType: finalHtml ? "HTML" : "Text",
+              content: finalHtml || finalText,
+            },
+            toRecipients: to.map((addr) => ({ emailAddress: { address: addr } })),
+            ccRecipients: (cc || []).map((addr) => ({ emailAddress: { address: addr } })),
+            bccRecipients: (bcc || []).map((addr) => ({ emailAddress: { address: addr } })),
+          },
+          saveToSentItems: true,
+        }),
       });
+      if (!graphRes.ok) {
+        const errText = await graphRes.text();
+        throw new Error(`Microsoft Graph Error: ${errText}`);
+      }
+    } else if (credentials.provider === "google" && credentials.oauth?.accessToken) {
+      // Google Gmail REST API Send
+      const rawMime = [
+        `From: ${fromHeader}`,
+        `To: ${to.join(", ")}`,
+        ...(cc && cc.length > 0 ? [`Cc: ${cc.join(", ")}`] : []),
+        `Subject: =?utf-8?B?${Buffer.from(subject).toString("base64")}?=`,
+        "MIME-Version: 1.0",
+        'Content-Type: text/html; charset="UTF-8"',
+        "",
+        finalHtml || finalText,
+      ].join("\r\n");
 
-      return NextResponse.json({ success: true, messageId: result.messageId });
+      const encodedMessage = Buffer.from(rawMime)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+
+      const gmailRes = await fetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${credentials.oauth.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ raw: encodedMessage }),
+        }
+      );
+      if (gmailRes.ok) {
+        const gmailData = await gmailRes.json();
+        messageId = gmailData.id || messageId;
+      }
     }
 
-    return NextResponse.json(
-      { error: `Envío no implementado para proveedor ${credentials.provider}` },
-      { status: 400 }
-    );
+    // Save a local record of the sent email in Supabase
+    await supabase.from("emails").insert({
+      tenant_id: account.tenant_id,
+      account_id: account.id,
+      remote_msg_id: messageId,
+      from_address: account.email_address,
+      from_name: account.display_name,
+      to_addresses: to,
+      cc_addresses: cc || [],
+      subject,
+      body_text: finalText,
+      body_html_sanitized: finalHtml,
+      date: new Date().toISOString(),
+      is_read: true,
+      triage_class: "info",
+      spf_dkim_status: "verified",
+    });
+
+    return NextResponse.json({
+      success: true,
+      messageId,
+      provider: credentials.provider,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error sending email";
     return NextResponse.json({ error: message }, { status: 500 });

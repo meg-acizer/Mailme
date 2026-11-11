@@ -499,10 +499,44 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
     }
   };
 
-  // Set mounted on client to prevent theme hydration mismatch
+  // Set mounted on client and restore persisted layout preferences
   useEffect(() => {
     setMounted(true);
+    try {
+      const savedPrefs = localStorage.getItem("worvanta_user_prefs");
+      if (savedPrefs) {
+        const parsed = JSON.parse(savedPrefs);
+        if (typeof parsed.sidebarCollapsed === "boolean") setSidebarCollapsed(parsed.sidebarCollapsed);
+        if (typeof parsed.col2Width === "number") setCol2Width(parsed.col2Width);
+        if (typeof parsed.col4Width === "number") setCol4Width(parsed.col4Width);
+        if (typeof parsed.col2Open === "boolean") setCol2Open(parsed.col2Open);
+        if (typeof parsed.col3Open === "boolean") setCol3Open(parsed.col3Open);
+        if (typeof parsed.col4Open === "boolean") setCol4Open(parsed.col4Open);
+      }
+    } catch (e) {
+      // Ignore storage error
+    }
   }, []);
+
+  // Automatically save layout preferences when changed
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem(
+        "worvanta_user_prefs",
+        JSON.stringify({
+          sidebarCollapsed,
+          col2Width,
+          col4Width,
+          col2Open,
+          col3Open,
+          col4Open,
+        })
+      );
+    } catch (e) {
+      // Ignore storage error
+    }
+  }, [mounted, sidebarCollapsed, col2Width, col4Width, col2Open, col3Open, col4Open]);
 
   // Keyboard shortcut listener ('c' for compose, 'Cmd+K' for command palette)
   useEffect(() => {
@@ -2089,13 +2123,21 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onNavigate={(mod) => setActiveModule(mod)}
-        onOpenComposer={() => handleOpenComposer()}
+        onOpenComposer={(to, sub) => handleOpenComposer(to || "", sub || "")}
         onOpenAdmin={() => {
           if (onOpenAdmin) onOpenAdmin();
         }}
         onSetLocale={(loc) => setLocale(loc)}
         onTriggerAiQuery={(query) => {
           handleQuickAction(query);
+        }}
+        emails={emailsList}
+        onSelectEmail={(emailId) => {
+          const found = emailsList.find((e) => e.id === emailId);
+          if (found) {
+            setSelectedEmail(found);
+            setCol3Open(true);
+          }
         }}
       />
     </div>

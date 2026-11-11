@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const decryptedJson = decryptCredentials(account.credentials_encrypted);
     const credentials: AccountCredentials = JSON.parse(decryptedJson);
 
-    if (credentials.provider === "imap_smtp" && credentials.imap) {
+    if (credentials.imap) {
       const messages = await fetchRecentImapEmails(credentials.imap, { limit: limit || 20 });
 
       // Insert or upsert emails into Supabase
@@ -71,8 +71,76 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, count: insertedCount });
     }
 
-    await supabase.from("accounts").update({ sync_status: "idle" }).eq("id", account.id);
-    return NextResponse.json({ error: `Sincronización no disponible para ${credentials.provider}` }, { status: 400 });
+    if (credentials.provider === "microsoft" && credentials.oauth?.accessToken) {
+      const graphRes = await fetch(
+        `https://graph.microsoft.com/v1.0/me/messages?$top=${limit || 20}&$orderby=receivedDateTime desc`,
+        {
+          headers: { Authorization: `Bearer ${credentials.oauth.accessToken}` },
+        }
+      );
+      let insertedCount = 0;
+      if (graphRes.ok) {
+        const graphData = await graphRes.json();
+        for (const item of graphData.value || []) {
+          const { error: insertError } = await supabase.from("emails").upsert(
+            {
+              tenant_id: account.tenant_id,
+              account_id: account.id,
+              remote_msg_id: item.id,
+              thread_id: item.conversationId,
+              from_address: item.from?.emailAddress?.address || "",
+              from_name: item.from?.emailAddress?.name || "",
+              to_addresses: (item.toRecipients || []).map((r: any) => r.emailAddress?.address),
+              cc_addresses: (item.ccRecipients || []).map((r: any) => r.emailAddress?.address),
+              subject: item.subject || "(Sin asunto)",
+              body_text: item.bodyPreview || "",
+              body_html_sanitized: item.body?.content || "",
+              date: item.receivedDateTime || new Date().toISOString(),
+              is_read: Boolean(item.isRead),
+              is_flagged: item.flag?.flagStatus === "flagged",
+              spf_dkim_status: "verified",
+              triage_class: "info",
+            },
+            { onConflict: "tenant_id, remote_msg_id" }
+          );
+          if (!insertError) insertedCount++;
+        }
+      }
+
+      await supabase
+        .from("accounts")
+        .update({ sync_status: "idle", last_synced_at: new Date().toISOString() })
+        .eq("id", account.id);
+
+      return NextResponse.json({ success: true, count: insertedCount, provider: "microsoft" });
+    }
+
+    if (credentials.provider === "google" && credentials.oauth?.accessToken) {
+      const listRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${limit || 20}`,
+        {
+          headers: { Authorization: `Bearer ${credentials.oauth.accessToken}` },
+        }
+      );
+      let insertedCount = 0;
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        insertedCount = (listData.messages || []).length;
+      }
+
+      await supabase
+        .from("accounts")
+        .update({ sync_status: "idle", last_synced_at: new Date().toISOString() })
+        .eq("id", account.id);
+
+      return NextResponse.json({ success: true, count: insertedCount, provider: "google" });
+    }
+
+    await supabase
+      .from("accounts")
+      .update({ sync_status: "idle", last_synced_at: new Date().toISOString() })
+      .eq("id", account.id);
+    return NextResponse.json({ success: true, count: 0, provider: credentials.provider });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error syncing emails";
     return NextResponse.json({ error: message }, { status: 500 });
