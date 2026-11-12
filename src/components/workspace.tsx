@@ -1341,22 +1341,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       <main className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden">
         {/* Top Command Palette, Search Bar & Column Controls */}
         <header className="h-14 border-b border-border flex items-center justify-between px-4 sm:px-6 bg-card/40 backdrop-blur shrink-0 gap-3">
-          <div className="flex items-center gap-3 w-80 sm:w-96">
-            {/* Botón para alternar barra lateral */}
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
-                !sidebarCollapsed
-                  ? "bg-primary/10 text-primary border-primary/25"
-                  : "bg-card text-muted-foreground border-border hover:text-foreground"
-              }`}
-              title={sidebarCollapsed ? "Expandir menú lateral" : "Colapsar menú lateral"}
-            >
-              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-              <span className="hidden xl:inline text-[11px]">Menú</span>
-            </button>
-
+          <div className="flex items-center w-64 sm:w-80 md:w-96 min-w-0">
             <button
               onClick={() => setIsCommandPaletteOpen(true)}
               className="relative w-full flex items-center justify-between bg-muted/60 pl-9 pr-3 py-1.5 rounded-lg border border-border/80 text-xs text-muted-foreground hover:bg-muted cursor-pointer transition-colors"
