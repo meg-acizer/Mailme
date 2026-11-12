@@ -19,9 +19,12 @@ export async function GET(req: NextRequest) {
 
     const settings = (tenant?.settings as Record<string, unknown>) || {};
     const security = (settings.security_policies as any) || {
-      onlyCorporateAccounts: true,
+      onlyCorporateAccounts: false,
       maxAttachmentSizeMb: 5,
       blacklistDomains: ["phishing-alert.com", "spam-marketing.net"],
+      plan: "business_ai",
+      personalAccountsQuota: "unlimited",
+      personalAccountsAiMode: "single",
     };
     const assets = (settings.corporate_assets as any) || {
       signatureTemplate: `--\n{nombre_completo} | {cargo}\nAcme Corp\nT: +54 11 4000-0000 | www.acme.com`,

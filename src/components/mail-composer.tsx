@@ -19,6 +19,7 @@ import {
   ChevronDown,
   FileText,
   File,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface AccountOption {
@@ -29,12 +30,14 @@ export interface AccountOption {
   color: string;
   provider?: string;
   isDefault?: boolean;
+  isCorporateDefault?: boolean;
+  aiEnabled?: boolean;
 }
 
 export const DEFAULT_ACCOUNTS: AccountOption[] = [
-  { id: "1", displayName: "Microsoft 365", name: "Microsoft 365", email: "lbenitez@innovasoft.com", color: "#f97316" },
-  { id: "2", displayName: "Google Workspace", name: "Google Workspace", email: "cmendoza@techcorp.io", color: "#3b82f6" },
-  { id: "3", displayName: "IMAP Personalizado", name: "IMAP Personalizado", email: "soporte@miempresa.com", color: "#10b981" },
+  { id: "1", displayName: "Microsoft 365 (Empresa Default)", name: "Microsoft 365", email: "lbenitez@innovasoft.com", color: "#f97316", isCorporateDefault: true, aiEnabled: true },
+  { id: "2", displayName: "Google Workspace (Propia)", name: "Google Workspace", email: "cmendoza@techcorp.io", color: "#3b82f6", isCorporateDefault: false, aiEnabled: true },
+  { id: "3", displayName: "IMAP Personalizado (Propia)", name: "IMAP Personalizado", email: "soporte@miempresa.com", color: "#10b981", isCorporateDefault: false, aiEnabled: false },
 ];
 
 const PREDEFINED_TAGS = ["#Proyecto-MailMe", "#Finanzas", "#Urgente", "#Cliente-VIP", "#Legal", "#Soporte"];
@@ -279,21 +282,30 @@ export function MailComposer({
           {/* DE: Selector de Cuenta */}
           <div className="flex items-center gap-3 border-b border-border/60 pb-2 text-xs">
             <span className="w-16 font-semibold text-muted-foreground shrink-0">De:</span>
-            <div className="flex-1 relative">
+            <div className="flex-1 flex items-center justify-between gap-2">
               <select
                 value={selectedAccount.id}
                 onChange={(e) => {
                   const acc = accounts.find((a) => a.id === e.target.value);
                   if (acc) setSelectedAccount(acc);
                 }}
-                className="w-full bg-transparent border-none text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
+                className="flex-1 bg-transparent border-none text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
               >
                 {accounts.map((acc) => (
                   <option key={acc.id} value={acc.id} className="bg-card text-foreground">
-                    {acc.displayName || acc.name} &lt;{acc.email}&gt;
+                    {acc.displayName || acc.name} &lt;{acc.email}&gt; {acc.isCorporateDefault ? "• [Default Empresa]" : "• [Cuenta Propia]"}
                   </option>
                 ))}
               </select>
+              {selectedAccount.isCorporateDefault || selectedAccount.aiEnabled !== false ? (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                  ✨ IA + Antispam & ClamAV
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 shrink-0">
+                  🛡️ Simple (Antispam & ClamAV • Sin IA)
+                </span>
+              )}
             </div>
           </div>
 
@@ -448,45 +460,57 @@ export function MailComposer({
               </div>
             </div>
 
-            {/* AI Assistant Menu */}
+            {/* AI Assistant Menu (Gated by Account AI Policy) */}
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setAiAssistantOpen(!aiAssistantOpen)}
-                disabled={isGeneratingAi}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Sparkles className={`h-3.5 w-3.5 ${isGeneratingAi ? "animate-spin" : ""}`} />
-                <span>{isGeneratingAi ? "Generando con IA..." : "Ayuda IA"}</span>
-                <ChevronDown className="h-3 w-3 opacity-70" />
-              </button>
+              {selectedAccount.isCorporateDefault || selectedAccount.aiEnabled !== false ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setAiAssistantOpen(!aiAssistantOpen)}
+                    disabled={isGeneratingAi}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <Sparkles className={`h-3.5 w-3.5 ${isGeneratingAi ? "animate-spin" : ""}`} />
+                    <span>{isGeneratingAi ? "Generando con IA..." : "Ayuda IA"}</span>
+                    <ChevronDown className="h-3 w-3 opacity-70" />
+                  </button>
 
-              {aiAssistantOpen && (
-                <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-2xl p-2 w-56 space-y-1">
-                  <button
-                    onClick={() => handleApplyAiMode("draft")}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
-                  >
-                    📝 Redactar borrador completo
-                  </button>
-                  <button
-                    onClick={() => handleApplyAiMode("formal")}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
-                  >
-                    👔 Hacer más formal y profesional
-                  </button>
-                  <button
-                    onClick={() => handleApplyAiMode("concise")}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
-                  >
-                    ⚡ Hacer conciso y directo
-                  </button>
-                  <button
-                    onClick={() => handleApplyAiMode("expand")}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
-                  >
-                    🔍 Expandir detalles técnicos
-                  </button>
+                  {aiAssistantOpen && (
+                    <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-2xl p-2 w-56 space-y-1">
+                      <button
+                        onClick={() => handleApplyAiMode("draft")}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
+                      >
+                        📝 Redactar borrador completo
+                      </button>
+                      <button
+                        onClick={() => handleApplyAiMode("formal")}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
+                      >
+                        👔 Hacer más formal y profesional
+                      </button>
+                      <button
+                        onClick={() => handleApplyAiMode("concise")}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
+                      >
+                        ⚡ Hacer conciso y directo
+                      </button>
+                      <button
+                        onClick={() => handleApplyAiMode("expand")}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-muted text-foreground"
+                      >
+                        🔍 Expandir detalles técnicos
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted text-muted-foreground border border-border text-[11px] font-medium"
+                  title="Esta cuenta propia está configurada como cuenta de lectura/envío simple (solo Antispam y Antivirus ClamAV) según el plan del Tenant."
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>Antispam & ClamAV Activos (IA Deshabilitada en esta cuenta)</span>
                 </div>
               )}
             </div>

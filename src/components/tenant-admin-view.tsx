@@ -407,7 +407,10 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   };
 
   // Security & Email Policies State
-  const [onlyCorporateAccounts, setOnlyCorporateAccounts] = useState(true);
+  const [onlyCorporateAccounts, setOnlyCorporateAccounts] = useState(false);
+  const [tenantPlan, setTenantPlan] = useState<"standard" | "business_ai" | "enterprise">("business_ai");
+  const [personalAccountsQuota, setPersonalAccountsQuota] = useState<"0" | "1" | "unlimited">("unlimited");
+  const [personalAccountsAiMode, setPersonalAccountsAiMode] = useState<"none" | "single" | "all">("single");
   const [maxAttachmentSizeMb, setMaxAttachmentSizeMb] = useState(5);
   const [blacklistDomains, setBlacklistDomains] = useState<string[]>([
     "phishing-alert.com",
@@ -423,11 +426,34 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   // Load Security & Corporate Assets Policies
   useEffect(() => {
     async function fetchPolicies() {
+      // First load from localStorage for instant responsiveness
+      try {
+        const savedLocal = localStorage.getItem("worvanta_tenant_policy");
+        if (savedLocal) {
+          const parsed = JSON.parse(savedLocal);
+          if (parsed.plan) setTenantPlan(parsed.plan);
+          if (parsed.personalAccountsQuota) {
+            setPersonalAccountsQuota(parsed.personalAccountsQuota);
+            setOnlyCorporateAccounts(parsed.personalAccountsQuota === "0");
+          }
+          if (parsed.personalAccountsAiMode) setPersonalAccountsAiMode(parsed.personalAccountsAiMode);
+        }
+      } catch {}
+
       try {
         const res = await fetch("/api/tenant/policies?tenantSlug=acme-corp");
         const json = await res.json();
         if (json.security) {
-          setOnlyCorporateAccounts(json.security.onlyCorporateAccounts ?? true);
+          if (json.security.plan) setTenantPlan(json.security.plan);
+          if (json.security.personalAccountsQuota) {
+            setPersonalAccountsQuota(json.security.personalAccountsQuota);
+            setOnlyCorporateAccounts(json.security.personalAccountsQuota === "0");
+          } else {
+            setOnlyCorporateAccounts(json.security.onlyCorporateAccounts ?? false);
+          }
+          if (json.security.personalAccountsAiMode) {
+            setPersonalAccountsAiMode(json.security.personalAccountsAiMode);
+          }
           setMaxAttachmentSizeMb(json.security.maxAttachmentSizeMb ?? 5);
           if (Array.isArray(json.security.blacklistDomains)) {
             setBlacklistDomains(json.security.blacklistDomains);
@@ -441,7 +467,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
       }
     }
 
-    if (activeTab === "security" || activeTab === "assets") {
+    if (activeTab === "users" || activeTab === "security" || activeTab === "assets") {
       fetchPolicies();
     }
     if (activeTab === "analytics") {
@@ -492,13 +518,33 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const handleSavePolicies = async (sourceMessage: string) => {
     setIsSavingPolicies(true);
     try {
+      const localPolicyObj = {
+        plan: tenantPlan,
+        corporateDomain: "empresa.com",
+        corporateProvider: "microsoft",
+        personalAccountsQuota,
+        personalAccountsAiMode,
+      };
+      try {
+        const existingLocal = localStorage.getItem("worvanta_tenant_policy");
+        if (existingLocal) {
+          const parsed = JSON.parse(existingLocal);
+          localPolicyObj.corporateDomain = parsed.corporateDomain || "empresa.com";
+          localPolicyObj.corporateProvider = parsed.corporateProvider || "microsoft";
+        }
+        localStorage.setItem("worvanta_tenant_policy", JSON.stringify(localPolicyObj));
+      } catch {}
+
       const res = await fetch("/api/tenant/policies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenantSlug: "acme-corp",
           security: {
-            onlyCorporateAccounts,
+            onlyCorporateAccounts: personalAccountsQuota === "0",
+            plan: tenantPlan,
+            personalAccountsQuota,
+            personalAccountsAiMode,
             maxAttachmentSizeMb,
             blacklistDomains,
           },
@@ -698,7 +744,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                 <div>
                   <h2 className="text-xl font-bold tracking-tight">Usuarios de la Organización</h2>
                   <p className="text-xs text-muted-foreground">
-                    Administra los accesos, roles y estado de las cuentas de tu empresa.
+                    Administra los accesos, la cuenta corporativa default y la política de IA en cuentas propias de los usuarios.
                   </p>
                 </div>
                 <button
@@ -706,8 +752,108 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                   className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 shadow cursor-pointer transition-all"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Invitar Usuario</span>
+                  <span>Invitar Usuario (+ Cuenta Default)</span>
                 </button>
+              </div>
+
+              {/* Plan & Personal Accounts AI Policy Card */}
+              <div className="bg-card border-2 border-primary/25 rounded-2xl p-5 space-y-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-primary" />
+                      <h3 className="font-bold text-xs text-foreground uppercase tracking-wider">
+                        Plan del Tenant & Política de IA en Cuentas Propias de Usuarios
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Cada usuario recibe automáticamente su <strong>Cuenta Corporativa Default</strong> (con IA + Antispam + ClamAV). Aquí defines si pueden sumar cuentas propias y qué alcance tiene la IA sobre ellas.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSavePolicies("Política de Plan y Cuentas Propias aplicada a todos los usuarios del Tenant")}
+                    disabled={isSavingPolicies}
+                    className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>{isSavingPolicies ? "Aplicando..." : "Aplicar Política al Tenant"}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* 1. Plan Selector */}
+                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      1. Plan de Suscripción Activo
+                    </label>
+                    <select
+                      value={tenantPlan}
+                      onChange={(e) => {
+                        const val = e.target.value as "standard" | "business_ai" | "enterprise";
+                        setTenantPlan(val);
+                        if (val === "standard") {
+                          setPersonalAccountsAiMode("none");
+                        } else if (val === "business_ai") {
+                          setPersonalAccountsAiMode("single");
+                        } else {
+                          setPersonalAccountsAiMode("all");
+                        }
+                      }}
+                      className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="standard">Plan Standard (IA solo Corporativa)</option>
+                      <option value="business_ai">Plan Business AI (IA en 1 Cuenta Propia)</option>
+                      <option value="enterprise">Plan Enterprise Full AI (IA Ilimitada)</option>
+                    </select>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      El plan determina el techo de cuentas propias con IA habilitada.
+                    </p>
+                  </div>
+
+                  {/* 2. Personal Accounts Quota */}
+                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      2. Permiso de Cuentas Propias
+                    </label>
+                    <select
+                      value={personalAccountsQuota}
+                      onChange={(e) => {
+                        const q = e.target.value as "0" | "1" | "unlimited";
+                        setPersonalAccountsQuota(q);
+                        setOnlyCorporateAccounts(q === "0");
+                      }}
+                      className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="0">🔒 Bloqueado (Solo Cuenta Corporativa Default)</option>
+                      <option value="1">1 Cuenta Propia adicional (Gmail/M365/IMAP)</option>
+                      <option value="unlimited">Ilimitadas Cuentas Propias por usuario</option>
+                    </select>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Permite que cada empleado agregue sus propios correos en su perfil.
+                    </p>
+                  </div>
+
+                  {/* 3. AI Mode on Personal Accounts */}
+                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      3. Motor IA en Cuentas Propias
+                    </label>
+                    <select
+                      value={personalAccountsAiMode}
+                      onChange={(e) => setPersonalAccountsAiMode(e.target.value as "none" | "single" | "all")}
+                      disabled={personalAccountsQuota === "0"}
+                      className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="none">🛡️ Sin IA (Solo Lectura Simple + Antispam & ClamAV)</option>
+                      <option value="single">✨ IA habilitada en 1 Cuenta Propia</option>
+                      <option value="all">🚀 IA habilitada en TODAS las Cuentas Propias</option>
+                    </select>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Las cuentas sin IA operan como lector de correo simple con protección Antispam SPF/DKIM y Antivirus ClamAV.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Users Table */}
@@ -716,6 +862,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                   <thead className="bg-muted/50 border-b border-border text-muted-foreground font-semibold">
                     <tr>
                       <th className="p-3.5">Nombre y Correo</th>
+                      <th className="p-3.5">Cuenta Default & Cuentas Propias</th>
                       <th className="p-3.5">Rol</th>
                       <th className="p-3.5">Tokens IA</th>
                       <th className="p-3.5">Costo (USD)</th>
@@ -729,6 +876,22 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                         <td className="p-3.5">
                           <div className="font-semibold text-foreground">{user.name}</div>
                           <div className="text-[11px] text-muted-foreground">{user.email}</div>
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded w-fit">
+                              ✓ Default Empresa (IA + ClamAV)
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {personalAccountsQuota === "0"
+                                ? "Cuentas propias deshabilitadas"
+                                : personalAccountsAiMode === "none"
+                                ? "Cuentas propias: Lectura Simple (Antispam/ClamAV)"
+                                : personalAccountsAiMode === "single"
+                                ? "Cuentas propias: IA en 1 cuenta + Antispam/ClamAV"
+                                : "Cuentas propias: IA Total + Antispam/ClamAV"}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-3.5">
                           <span
@@ -1657,10 +1820,15 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
       {showAddUserModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-2xl space-y-4">
-            <h3 className="font-bold text-base text-foreground">Invitar Colaborador</h3>
+            <div>
+              <h3 className="font-bold text-base text-foreground">Dar de Alta Usuario en el Tenant</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Se creará su acceso y se le asignará automáticamente la Cuenta Corporativa Default de la empresa.
+              </p>
+            </div>
             <form onSubmit={handleAddUser} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Nombre</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Nombre Completo</label>
                 <input
                   type="text"
                   value={newUserName}
@@ -1672,7 +1840,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
 
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Correo Corporativo
+                  Correo Corporativo Default (Empresa)
                 </label>
                 <input
                   type="email"
@@ -1685,15 +1853,31 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1">Rol</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Rol en el Tenant</label>
                 <select
                   value={newUserRole}
                   onChange={(e) => setNewUserRole(e.target.value as "admin" | "member")}
                   className="w-full bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  <option value="member">Miembro (Acceso estándar)</option>
+                  <option value="member">Miembro (Acceso estándar + Perfil Personal)</option>
                   <option value="admin">Administrador del Tenant</option>
                 </select>
+              </div>
+
+              {/* Provisioning Summary Box */}
+              <div className="p-3 rounded-xl bg-primary/10 border border-primary/20 space-y-1.5 text-[11px]">
+                <div className="font-bold text-primary flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>Aprovisionamiento Automático al Ingresar:</span>
+                </div>
+                <ul className="space-y-1 text-muted-foreground list-disc list-inside">
+                  <li>
+                    <strong>Cuenta Corporativa Default:</strong> IA Completa + Antispam SPF/DKIM + ClamAV Antivirus.
+                  </li>
+                  <li>
+                    <strong>Perfil del Usuario:</strong> Podrá editar sus datos personales y conectar cuentas propias (IMAP, Google, Microsoft) según la política del Plan ({tenantPlan.toUpperCase()}).
+                  </li>
+                </ul>
               </div>
 
               <div className="flex justify-end gap-2 pt-3">
@@ -1708,7 +1892,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                   type="submit"
                   className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer"
                 >
-                  Enviar Invitación
+                  Crear Usuario y Asignar Cuenta Default
                 </button>
               </div>
             </form>

@@ -11,7 +11,12 @@ import { TeamChatView } from "./views/team-chat-view";
 import { ContactsView } from "./views/contacts-view";
 import { TasksView } from "./views/tasks-view";
 import { FilesView } from "./views/files-view";
-import { AccountManagerModal, type ConnectedAccount } from "./account-manager-modal";
+import {
+  AccountManagerModal,
+  type ConnectedAccount,
+  type TenantAccountPolicy,
+  type UserProfileData,
+} from "./account-manager-modal";
 import { WorvantaLogo } from "./ui/worvanta-logo";
 import {
   Inbox,
@@ -234,6 +239,8 @@ export interface WorkspaceUser {
   name: string;
   tenantName: string;
   role?: string;
+  tenantPlan?: "standard" | "business_ai" | "enterprise";
+  corporateProvider?: "microsoft" | "google" | "imap_smtp";
 }
 
 interface WorkspaceProps {
@@ -291,15 +298,97 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [col3Open, setCol3Open] = useState(true);
   const [col4Open, setCol4Open] = useState(true);
 
-  // User Multiple Accounts State
+  // User Profile & Tenant Policy State
+  const [userProfile, setUserProfile] = useState<UserProfileData>({
+    name: user?.name || "meg-acizer",
+    email: user?.email || "meg@empresa.com",
+    jobTitle: "Director de Operaciones",
+    phone: "+54 11 5000-1234",
+    personalSignature: `Saludos cordiales,\n${user?.name || "meg-acizer"} | ${user?.tenantName || "Empresa"}`,
+  });
+
+  const [tenantPolicy, setTenantPolicy] = useState<TenantAccountPolicy>({
+    plan: user?.tenantPlan || "business_ai",
+    corporateDomain: user?.email?.split("@")[1] || "empresa.com",
+    corporateProvider: user?.corporateProvider || "microsoft",
+    personalAccountsQuota: "unlimited",
+    personalAccountsAiMode: "single",
+  });
+
+  // User Multiple Accounts State (Corporate Default + Personal Accounts)
   const [accountsList, setAccountsList] = useState<ConnectedAccount[]>([
-    { id: "1", provider: "microsoft", email: "lbenitez@innovasoft.com", displayName: "Microsoft 365 (Trabajo)", color: "#f97316", isDefault: true },
-    { id: "2", provider: "google", email: "cmendoza@techcorp.io", displayName: "Google Workspace (Personal)", color: "#3b82f6" },
-    { id: "3", provider: "imap_smtp", email: "soporte@miempresa.com", displayName: "IMAP Servidor (Clientes)", color: "#10b981" },
+    {
+      id: "1",
+      provider: user?.corporateProvider || "microsoft",
+      email: user?.email || "lbenitez@innovasoft.com",
+      displayName: "Microsoft 365 (Empresa Default)",
+      color: "#f97316",
+      isDefault: true,
+      isCorporateDefault: true,
+      aiEnabled: true,
+    },
+    {
+      id: "2",
+      provider: "google",
+      email: "cmendoza@techcorp.io",
+      displayName: "Google Workspace (Cuenta Propia)",
+      color: "#3b82f6",
+      isCorporateDefault: false,
+      aiEnabled: true,
+    },
+    {
+      id: "3",
+      provider: "imap_smtp",
+      email: "soporte@miempresa.com",
+      displayName: "IMAP Servidor (Cuenta Propia)",
+      color: "#10b981",
+      isCorporateDefault: false,
+      aiEnabled: false,
+    },
   ]);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
   const [contactSavedNotice, setContactSavedNotice] = useState<string | null>(null);
   const [floatingModalEmail, setFloatingModalEmail] = useState<EmailItem | null>(null);
+
+  // Load Tenant Policy from localStorage and sync personal accounts AI status
+  useEffect(() => {
+    try {
+      const savedPolicy = localStorage.getItem("worvanta_tenant_policy");
+      if (savedPolicy) {
+        const parsed = JSON.parse(savedPolicy) as TenantAccountPolicy;
+        setTenantPolicy((prev) => ({ ...prev, ...parsed }));
+        setAccountsList((prev) => {
+          let singleAssigned = false;
+          return prev.map((acc) => {
+            if (acc.isCorporateDefault) return { ...acc, aiEnabled: true };
+            if (parsed.personalAccountsAiMode === "all") return { ...acc, aiEnabled: true };
+            if (parsed.personalAccountsAiMode === "none") return { ...acc, aiEnabled: false };
+            // single mode
+            if (!singleAssigned && acc.aiEnabled) {
+              singleAssigned = true;
+              return { ...acc, aiEnabled: true };
+            }
+            return { ...acc, aiEnabled: false };
+          });
+        });
+      }
+    } catch {}
+  }, [isAccountsModalOpen]);
+
+  // Helper to check if an EmailItem belongs to an account with effective AI enabled
+  const isEmailAiEnabled = (email: EmailItem): boolean => {
+    const matchedAcc = accountsList.find(
+      (acc) =>
+        email.account.name.toLowerCase().includes(acc.provider.toLowerCase()) ||
+        email.account.name.toLowerCase().includes(acc.displayName.toLowerCase()) ||
+        email.senderEmail.toLowerCase().includes(acc.email.toLowerCase())
+    );
+    if (!matchedAcc) return true;
+    if (matchedAcc.isCorporateDefault) return true;
+    if (tenantPolicy.personalAccountsAiMode === "all") return true;
+    if (tenantPolicy.personalAccountsAiMode === "none") return false;
+    return Boolean(matchedAcc.aiEnabled);
+  };
 
   const handleOpenInFloatingWindow = (email: EmailItem) => {
     try {
@@ -1125,8 +1214,30 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             </nav>
           </div>
 
-          {/* Preferences & Settings Footer (i18n & Themes) */}
-          <div className="p-3 border-t border-border space-y-2 bg-muted/20">
+          {/* Preferences & Settings Footer (User Profile, Accounts, i18n & Themes) */}
+          <div className="p-3 border-t border-border space-y-2.5 bg-muted/20">
+            <button
+              type="button"
+              onClick={() => setIsAccountsModalOpen(true)}
+              className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-muted/60 transition-all cursor-pointer group"
+              title="Editar mis datos personales y gestionar mis cuentas de correo (Empresa + Propias)"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <div className="h-6 w-6 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">
+                  {(userProfile.name || "U").slice(0, 2).toUpperCase()}
+                </div>
+                <div className="text-left truncate">
+                  <div className="font-semibold text-xs text-foreground truncate group-hover:text-primary transition-colors">
+                    {userProfile.name}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    Mi Perfil & Cuentas ({accountsList.length})
+                  </div>
+                </div>
+              </div>
+              <Settings2 className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+            </button>
+
             <div className="flex items-center justify-between">
               {/* Language Switcher */}
               <div className="flex items-center gap-1 bg-muted p-0.5 rounded-md text-xs">
@@ -1284,9 +1395,18 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
               </button>
             )}
 
-            <span className="text-xs text-muted-foreground font-mono hidden lg:inline">
-              user: <strong className="text-foreground">{user?.name || user?.email || "meg-acizer"}</strong>
-            </span>
+            <button
+              type="button"
+              onClick={() => setIsAccountsModalOpen(true)}
+              className="flex items-center gap-1.5 text-xs bg-muted/60 hover:bg-muted border border-border px-2.5 py-1 rounded-lg font-medium text-foreground transition-colors cursor-pointer"
+              title="Mi Perfil Personal & Cuentas de Correo"
+            >
+              <Settings2 className="h-3.5 w-3.5 text-primary" />
+              <span className="hidden lg:inline">{userProfile.name}</span>
+              <span className="text-[10px] font-mono bg-primary/15 text-primary px-1.5 py-0.2 rounded">
+                Perfil & Cuentas
+              </span>
+            </button>
             {onLogout && (
               <button
                 onClick={onLogout}
@@ -1470,10 +1590,19 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         <h3 className="font-medium text-xs truncate mb-1 text-foreground">
                           {email.subject}
                         </h3>
-                        <div className="mt-1.5 bg-primary/10 border border-primary/20 rounded p-1.5 flex items-start gap-1.5 text-[11px] text-primary leading-tight">
-                          <Sparkles className="h-3 w-3 shrink-0 mt-0.5" />
-                          <span className="truncate">{email.aiSummary}</span>
-                        </div>
+                        {isEmailAiEnabled(email) ? (
+                          <div className="mt-1.5 bg-primary/10 border border-primary/20 rounded p-1.5 flex items-start gap-1.5 text-[11px] text-primary leading-tight">
+                            <Sparkles className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span className="truncate">{email.aiSummary}</span>
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 bg-muted/60 border border-border rounded p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground leading-tight">
+                            <span className="truncate">{email.preview}</span>
+                            <span className="shrink-0 text-emerald-500 font-semibold flex items-center gap-0.5">
+                              <ShieldCheck className="h-3 w-3" /> Antispam/ClamAV
+                            </span>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
@@ -1527,20 +1656,31 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         </div>
                       </div>
 
-                      {/* Resumen IA Compacto en una Sola Línea */}
+                      {/* Resumen IA Compacto en una Sola Línea (o Indicador de Cuenta Simple Sin IA) */}
                       <div className="flex items-center gap-2 truncate justify-end">
-                        <div className="flex items-center gap-1.5 text-primary text-[11px] truncate">
-                          <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse" />
-                          <span className="font-bold shrink-0">IA:</span>
-                          <span className="text-muted-foreground truncate">{selectedEmail.aiSummary}</span>
-                        </div>
-                        <button
-                          onClick={() => handleRunAiTriage(selectedEmail)}
-                          disabled={isTriaging}
-                          className="text-[11px] font-semibold text-primary hover:underline shrink-0"
-                        >
-                          {isTriaging ? "..." : "Re-analizar"}
-                        </button>
+                        {isEmailAiEnabled(selectedEmail) ? (
+                          <>
+                            <div className="flex items-center gap-1.5 text-primary text-[11px] truncate">
+                              <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse" />
+                              <span className="font-bold shrink-0">IA:</span>
+                              <span className="text-muted-foreground truncate">{selectedEmail.aiSummary}</span>
+                            </div>
+                            <button
+                              onClick={() => handleRunAiTriage(selectedEmail)}
+                              disabled={isTriaging}
+                              className="text-[11px] font-semibold text-primary hover:underline shrink-0"
+                            >
+                              {isTriaging ? "..." : "Re-analizar"}
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-lg text-[11px] truncate">
+                            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                            <span className="truncate font-medium">
+                              Modo Lectura Simple (Antispam & ClamAV Activos • Sin IA en esta cuenta propia)
+                            </span>
+                          </div>
+                        )}
                         <div className="h-3 w-px bg-border/80 shrink-0 mx-0.5" />
                         <button
                           onClick={() => handleOpenInFloatingWindow(selectedEmail)}
@@ -1801,33 +1941,51 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                       </div>
                     </div>
 
-                    {/* 5. Respuestas Sugeridas de IA al Pie de la Hoja */}
-                    <div className="px-8 py-3.5 bg-muted/30 border-t border-border/60 flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-semibold text-muted-foreground">Respuestas sugeridas:</span>
+                    {/* 5. Respuestas Sugeridas de IA al Pie de la Hoja (Gated por Política IA de la Cuenta) */}
+                    {isEmailAiEnabled(selectedEmail) ? (
+                      <div className="px-8 py-3.5 bg-muted/30 border-t border-border/60 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] font-semibold text-muted-foreground">Respuestas sugeridas por IA:</span>
+                          <button
+                            onClick={() => handleQuickAction("Confirmar reunión jueves 15:00")}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                            <span>{t.ai.acceptMeeting}</span>
+                          </button>
+                          <button
+                            onClick={() => handleQuickAction("Solicitar desglose adicional")}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
+                          >
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                            <span>{t.ai.askDetails}</span>
+                          </button>
+                          <button
+                            onClick={() => handleQuickAction("Proponer viernes 11:00")}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
+                          >
+                            <Clock className="h-3.5 w-3.5 text-blue-500" />
+                            <span>{t.ai.proposeAlternative}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-8 py-3 bg-muted/20 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                          <span>
+                            <strong>Cuenta de Lectura Simple:</strong> Protección Antispam SPF/DKIM y Antivirus ClamAV activas. Las sugerencias de IA no están habilitadas para esta cuenta propia según el Plan del Tenant.
+                          </span>
+                        </div>
                         <button
-                          onClick={() => handleQuickAction("Confirmar reunión jueves 15:00")}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
+                          type="button"
+                          onClick={() => setIsAccountsModalOpen(true)}
+                          className="text-[11px] font-semibold text-primary hover:underline shrink-0 cursor-pointer"
                         >
-                          <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
-                          <span>{t.ai.acceptMeeting}</span>
-                        </button>
-                        <button
-                          onClick={() => handleQuickAction("Solicitar desglose adicional")}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
-                        >
-                          <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-                          <span>{t.ai.askDetails}</span>
-                        </button>
-                        <button
-                          onClick={() => handleQuickAction("Proponer viernes 11:00")}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium transition-colors cursor-pointer"
-                        >
-                          <Clock className="h-3.5 w-3.5 text-blue-500" />
-                          <span>{t.ai.proposeAlternative}</span>
+                          Ver configuración de cuentas
                         </button>
                       </div>
-                    </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
@@ -1920,34 +2078,41 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                   </div>
                 </div>
 
-                {/* Embedded AI Assistant Box */}
+                {/* Embedded AI Assistant Box (Gated by Account AI Policy) */}
                 <div className="p-3 border-t border-border bg-card">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && aiPrompt.trim()) {
-                          handleQuickAction(aiPrompt);
-                          setAiPrompt("");
-                        }
-                      }}
-                      placeholder={t.ai.askAboutThread}
-                      className="w-full bg-muted/60 pl-3 pr-8 py-2 rounded-lg border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                    <button
-                      onClick={() => {
-                        if (aiPrompt.trim()) {
-                          handleQuickAction(aiPrompt);
-                          setAiPrompt("");
-                        }
-                      }}
-                      className="absolute right-2 top-2 text-primary hover:text-primary/80"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </div>
+                  {selectedEmail && isEmailAiEnabled(selectedEmail) ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && aiPrompt.trim()) {
+                            handleQuickAction(aiPrompt);
+                            setAiPrompt("");
+                          }
+                        }}
+                        placeholder={t.ai.askAboutThread}
+                        className="w-full bg-muted/60 pl-3 pr-8 py-2 rounded-lg border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <button
+                        onClick={() => {
+                          if (aiPrompt.trim()) {
+                            handleQuickAction(aiPrompt);
+                            setAiPrompt("");
+                          }
+                        }}
+                        className="absolute right-2 top-2 text-primary hover:text-primary/80"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-lg bg-muted/50 border border-border text-[11px] text-muted-foreground flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <span>Cuenta en modo Lectura Simple (Antispam & ClamAV). Asistente IA deshabilitado para esta cuenta propia.</span>
+                    </div>
+                  )}
                 </div>
               </aside>
             )}
@@ -2003,11 +2168,31 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         }}
       />
 
-      {/* Account Manager Modal */}
+      {/* Account Manager & User Profile Modal */}
       <AccountManagerModal
         isOpen={isAccountsModalOpen}
         onClose={() => setIsAccountsModalOpen(false)}
         accounts={accountsList}
+        userProfile={userProfile}
+        onUpdateProfile={(profile) => {
+          setUserProfile(profile);
+          setActionNotice("✓ Datos personales del perfil actualizados");
+          setTimeout(() => setActionNotice(null), 3500);
+        }}
+        tenantPolicy={tenantPolicy}
+        onToggleAccountAi={(accId) => {
+          setAccountsList((prev) =>
+            prev.map((acc) => {
+              if (acc.isCorporateDefault) return { ...acc, aiEnabled: true };
+              if (tenantPolicy.personalAccountsAiMode === "single") {
+                return { ...acc, aiEnabled: acc.id === accId };
+              }
+              return acc;
+            })
+          );
+          setActionNotice("✨ Cuenta propia principal para IA actualizada");
+          setTimeout(() => setActionNotice(null), 3500);
+        }}
         onAddAccount={(newAcc) => {
           setAccountsList((prev) => [...prev, newAcc]);
           setActionNotice(`Cuenta ${newAcc.email} vinculada con éxito`);
@@ -2015,7 +2200,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         }}
         onRemoveAccount={(accId) => {
           setAccountsList((prev) => prev.filter((a) => a.id !== accId));
-          setActionNotice("Cuenta desconectada");
+          setActionNotice("Cuenta propia desconectada");
           setTimeout(() => setActionNotice(null), 4000);
         }}
       />
