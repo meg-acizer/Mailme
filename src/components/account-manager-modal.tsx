@@ -102,7 +102,8 @@ export function AccountManagerModal({
     personalAccountsAiMode: "single",
   },
 }: AccountManagerModalProps) {
-  const [activeTab, setActiveTab] = useState<"profile" | "list" | "add" | "calendars">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "list" | "calendars">("profile");
+  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
   const [provider, setProvider] = useState<"google" | "microsoft" | "imap_smtp">("imap_smtp");
 
   // Profile fields
@@ -296,7 +297,7 @@ export function AccountManagerModal({
       };
 
       onAddAccount(newAcc);
-      setActiveTab("list");
+      setShowAddAccountForm(false);
       setEmailAddress("");
       setPassword("");
       setDisplayName("");
@@ -402,17 +403,6 @@ export function AccountManagerModal({
           >
             <Calendar className="h-3.5 w-3.5" />
             <span>Mis Calendarios ({calendars.length})</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("add")}
-            className={`pb-2.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "add"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>+ Conectar Correo</span>
           </button>
         </div>
 
@@ -748,20 +738,235 @@ export function AccountManagerModal({
               </div>
 
               {/* 2. Cuentas Propias del Usuario */}
-              <div className="space-y-2 pt-2 border-t border-border">
+              <div className="space-y-3 pt-2 border-t border-border">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Mail className="h-3.5 w-3.5 text-emerald-500" />
                     Mis Cuentas Propias ({personalAccounts.length})
                   </h3>
                   <button
-                    onClick={() => setActiveTab("add")}
-                    className="text-[11px] font-semibold text-primary hover:underline cursor-pointer flex items-center gap-1"
+                    type="button"
+                    onClick={() => setShowAddAccountForm(!showAddAccountForm)}
+                    className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
                   >
-                    <Plus className="h-3 w-3" />
-                    Agregar cuenta propia
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>{showAddAccountForm ? "Cerrar Formulario" : "Agregar cuenta propia"}</span>
                   </button>
                 </div>
+
+                {/* Formulario Desplegable para Conectar Nueva Cuenta Propia */}
+                {showAddAccountForm && (
+                  <form
+                    onSubmit={handleCreateAccount}
+                    className="p-4 rounded-xl bg-card border-2 border-primary/30 space-y-4 animate-in fade-in"
+                  >
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <span className="font-bold text-xs text-foreground">
+                        Conectar Nueva Cuenta de Correo Propia
+                      </span>
+                      <span className="text-[10px] text-emerald-500 flex items-center gap-1 font-medium">
+                        <Lock className="h-3 w-3" /> Cifrado AES-256-GCM
+                      </span>
+                    </div>
+
+                    {!canAddMorePersonal && (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium">
+                        ⚠️ Has alcanzado el límite de cuentas propias permitido por el Administrador de tu empresa.
+                      </div>
+                    )}
+
+                    {/* Provider Selector */}
+                    <div>
+                      <label className="block text-xs font-semibold text-foreground mb-2">
+                        Selecciona el Proveedor de tu Cuenta Propia
+                      </label>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProvider("google");
+                            setColorTag("#3b82f6");
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                            provider === "google"
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <span>Google / Gmail</span>
+                          <span className="text-[10px] opacity-75">OAuth / App Pass</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProvider("microsoft");
+                            setColorTag("#f97316");
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                            provider === "microsoft"
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <span>Microsoft 365 / Outlook</span>
+                          <span className="text-[10px] opacity-75">Graph / Exchange</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProvider("imap_smtp");
+                            setColorTag("#10b981");
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                            provider === "imap_smtp"
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <span>IMAP / SMTP</span>
+                          <span className="text-[10px] opacity-75">Servidor Propio</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1">
+                          Nombre Identificador *
+                        </label>
+                        <input
+                          type="text"
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          placeholder="Ej: Mi Gmail Personal"
+                          required
+                          className="w-full bg-muted/40 border border-border px-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1">
+                          Dirección de Correo *
+                        </label>
+                        <input
+                          type="email"
+                          value={emailAddress}
+                          onChange={(e) => setEmailAddress(e.target.value)}
+                          placeholder="usuario@gmail.com"
+                          required
+                          className="w-full bg-muted/40 border border-border px-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Aviso claro sobre IA vs Antispam/ClamAV según política del Admin */}
+                    <div className="p-3 rounded-xl bg-muted/30 border border-border text-[11px] text-muted-foreground flex items-start gap-2">
+                      <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        {tenantPolicy.personalAccountsAiMode === "none" ? (
+                          <span>
+                            Por configuración del Administrador de tu empresa, esta cuenta se conectará en <strong>Modo Lectura Simple</strong> con protección <strong>Antispam (SPF/DKIM) y Antivirus (ClamAV)</strong>, sin consumir créditos de IA del Tenant.
+                          </span>
+                        ) : tenantPolicy.personalAccountsAiMode === "single" ? (
+                          <span>
+                            Tu plan incluye <strong>Antispam y Antivirus ClamAV</strong> en todas las cuentas, y puedes activar <strong>IA completa</strong> en 1 cuenta propia adicional.
+                          </span>
+                        ) : (
+                          <span>
+                            Tu cuenta propia contará con <strong>IA Completa + Antispam y Antivirus ClamAV</strong> habilitados por el Administrador.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {provider === "imap_smtp" && (
+                      <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                          <Server className="h-3.5 w-3.5 text-primary" />
+                          <span>Parámetros de Servidor IMAP / SMTP</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="block text-[11px] text-muted-foreground mb-1">Servidor IMAP</label>
+                            <input
+                              type="text"
+                              value={imapHost}
+                              onChange={(e) => setImapHost(e.target.value)}
+                              placeholder="imap.midominio.com"
+                              className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-muted-foreground mb-1">Puerto IMAP</label>
+                            <input
+                              type="number"
+                              value={imapPort}
+                              onChange={(e) => setImapPort(Number(e.target.value))}
+                              className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="block text-[11px] text-muted-foreground mb-1">Servidor SMTP</label>
+                            <input
+                              type="text"
+                              value={smtpHost}
+                              onChange={(e) => setSmtpHost(e.target.value)}
+                              placeholder="smtp.midominio.com"
+                              className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-muted-foreground mb-1">Puerto SMTP</label>
+                            <input
+                              type="number"
+                              value={smtpPort}
+                              onChange={(e) => setSmtpPort(Number(e.target.value))}
+                              className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] text-muted-foreground mb-1">
+                            Contraseña / App Password
+                          </label>
+                          <div className="relative">
+                            <Key className="h-3.5 w-3.5 absolute left-2.5 top-2 text-muted-foreground" />
+                            <input
+                              type="password"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="••••••••••••"
+                              className="w-full bg-card border border-border pl-8 pr-3 py-1.5 rounded-lg text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddAccountForm(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isTesting || !canAddMorePersonal}
+                        className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 shadow-md cursor-pointer disabled:opacity-50"
+                      >
+                        {isTesting ? "Conectando..." : "Vincular Cuenta Propia"}
+                      </button>
+                    </div>
+                  </form>
+                )}
 
                 {personalAccounts.length === 0 ? (
                   <div className="p-6 rounded-xl border border-dashed border-border text-center text-xs text-muted-foreground">
@@ -1105,215 +1310,6 @@ export function AccountManagerModal({
                 )}
               </div>
             </div>
-          )}
-
-          {/* TAB 4: CONECTAR NUEVA CUENTA DE CORREO PROPIA */}
-          {activeTab === "add" && (
-            <form onSubmit={handleCreateAccount} className="space-y-4">
-              {!canAddMorePersonal && (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium">
-                  ⚠️ Has alcanzado el límite de cuentas propias permitido por el Administrador de tu empresa.
-                </div>
-              )}
-
-              {/* Provider Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-2">
-                  Selecciona el Proveedor de tu Cuenta Propia
-                </label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProvider("google");
-                      setColorTag("#3b82f6");
-                    }}
-                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-all ${
-                      provider === "google"
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span>Google / Gmail</span>
-                    <span className="text-[10px] opacity-75">OAuth / App Pass</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProvider("microsoft");
-                      setColorTag("#f97316");
-                    }}
-                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-all ${
-                      provider === "microsoft"
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span>Microsoft 365 / Outlook</span>
-                    <span className="text-[10px] opacity-75">Graph / Exchange</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProvider("imap_smtp");
-                      setColorTag("#10b981");
-                    }}
-                    className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-all ${
-                      provider === "imap_smtp"
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <span>IMAP / SMTP</span>
-                    <span className="text-[10px] opacity-75">Servidor Propio</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">
-                    Nombre Identificador
-                  </label>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Ej: Mi Gmail Personal"
-                    required
-                    className="w-full bg-muted/40 border border-border px-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">
-                    Dirección de Correo
-                  </label>
-                  <input
-                    type="email"
-                    value={emailAddress}
-                    onChange={(e) => setEmailAddress(e.target.value)}
-                    placeholder="usuario@gmail.com"
-                    required
-                    className="w-full bg-muted/40 border border-border px-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-              </div>
-
-              {/* Aviso claro sobre IA vs Antispam/ClamAV según política del Admin */}
-              <div className="p-3 rounded-xl bg-muted/30 border border-border text-[11px] text-muted-foreground flex items-start gap-2">
-                <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <div>
-                  {tenantPolicy.personalAccountsAiMode === "none" ? (
-                    <span>
-                      Por configuración del Administrador de tu empresa, esta cuenta se conectará en <strong>Modo Lectura Simple</strong> con protección <strong>Antispam (SPF/DKIM) y Antivirus (ClamAV)</strong>, sin consumir créditos de IA del Tenant.
-                    </span>
-                  ) : tenantPolicy.personalAccountsAiMode === "single" ? (
-                    <span>
-                      Tu plan incluye <strong>Antispam y Antivirus ClamAV</strong> en todas las cuentas, y puedes activar <strong>IA completa</strong> en 1 cuenta propia adicional.
-                    </span>
-                  ) : (
-                    <span>
-                      Tu cuenta propia contará con <strong>IA Completa + Antispam y Antivirus ClamAV</strong> habilitados por el Administrador.
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {provider === "imap_smtp" && (
-                <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                    <Server className="h-3.5 w-3.5 text-primary" />
-                    <span>Parámetros de Servidor IMAP / SMTP</span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <label className="block text-[11px] text-muted-foreground mb-1">Servidor IMAP</label>
-                      <input
-                        type="text"
-                        value={imapHost}
-                        onChange={(e) => setImapHost(e.target.value)}
-                        placeholder="imap.midominio.com"
-                        className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-muted-foreground mb-1">Puerto IMAP</label>
-                      <input
-                        type="number"
-                        value={imapPort}
-                        onChange={(e) => setImapPort(Number(e.target.value))}
-                        className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <label className="block text-[11px] text-muted-foreground mb-1">Servidor SMTP</label>
-                      <input
-                        type="text"
-                        value={smtpHost}
-                        onChange={(e) => setSmtpHost(e.target.value)}
-                        placeholder="smtp.midominio.com"
-                        className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-muted-foreground mb-1">Puerto SMTP</label>
-                      <input
-                        type="number"
-                        value={smtpPort}
-                        onChange={(e) => setSmtpPort(Number(e.target.value))}
-                        className="w-full bg-card border border-border px-2.5 py-1.5 rounded-lg text-xs font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-muted-foreground mb-1">
-                      Contraseña / App Password
-                    </label>
-                    <div className="relative">
-                      <Key className="h-3.5 w-3.5 absolute left-2.5 top-2 text-muted-foreground" />
-                      <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
-                        className="w-full bg-card border border-border pl-8 pr-3 py-1.5 rounded-lg text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-1.5 text-[11px] text-emerald-500">
-                  <Lock className="h-3.5 w-3.5" />
-                  <span>Cifrado AES-256-GCM en bóveda</span>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("list")}
-                    className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isTesting || !canAddMorePersonal}
-                    className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 shadow-md cursor-pointer disabled:opacity-50"
-                  >
-                    {isTesting ? "Conectando..." : "Vincular Cuenta Propia"}
-                  </button>
-                </div>
-              </div>
-            </form>
           )}
         </div>
       </div>

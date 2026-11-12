@@ -1673,16 +1673,16 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
             {/* Columna 3: Vista de Lectura estilo Hoja de Papel (Cerrable) */}
             {col3Open ? (
-              <section className="flex-1 flex flex-col min-w-[340px] bg-muted/40 overflow-y-auto p-4 md:p-6">
+              <section className="flex-1 flex flex-col min-w-[340px] min-h-0 bg-muted/40 overflow-y-auto p-4 md:p-6">
                 {contactSavedNotice && (
-                  <div className="max-w-4xl mx-auto w-full mb-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-500 font-medium flex items-center justify-between">
+                  <div className="max-w-4xl mx-auto w-full mb-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-500 font-medium flex items-center justify-between shrink-0">
                     <span>{contactSavedNotice}</span>
                     <button onClick={() => setContactSavedNotice(null)} className="text-muted-foreground hover:text-foreground">×</button>
                   </div>
                 )}
 
                 {selectedEmail ? (
-                  <div className="w-full max-w-4xl mx-auto bg-card text-foreground border border-border shadow-xl rounded-2xl overflow-hidden flex flex-col">
+                  <div className="w-full max-w-4xl mx-auto bg-card text-foreground border border-border shadow-xl rounded-2xl overflow-hidden flex flex-col shrink-0 mb-8">
                     {/* 1. Encabezado Delgado de Estado, Prioridad e IA (Slim Header) */}
                     <div className="px-6 py-2.5 bg-muted/30 border-b border-border/60 flex items-center justify-between text-xs gap-3">
                       <div className="flex items-center gap-2 shrink-0">
