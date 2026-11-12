@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Mail,
   Plus,
@@ -19,6 +19,14 @@ import {
   Save,
   Shield,
   Info,
+  Camera,
+  ZoomIn,
+  ZoomOut,
+  Move,
+  Calendar,
+  Link2,
+  Check,
+  RotateCcw,
 } from "lucide-react";
 
 export interface ConnectedAccount {
@@ -30,6 +38,16 @@ export interface ConnectedAccount {
   isDefault?: boolean;
   isCorporateDefault?: boolean; // Cuenta corporativa default asignada por el Tenant Admin
   aiEnabled?: boolean; // Si tiene IA habilitada o es solo lectura simple + Antispam/ClamAV
+}
+
+export interface ConnectedCalendar {
+  id: string;
+  provider: "google" | "microsoft" | "caldav_ics";
+  name: string;
+  accountEmailOrUrl: string;
+  color: string;
+  isCorporateDefault?: boolean;
+  syncDirection: "two_way" | "read_only";
 }
 
 export interface TenantAccountPolicy {
@@ -48,6 +66,7 @@ export interface UserProfileData {
   personalSignature?: string;
   tenantName?: string;
   role?: string;
+  avatarUrl?: string;
 }
 
 interface AccountManagerModalProps {
@@ -57,6 +76,9 @@ interface AccountManagerModalProps {
   onAddAccount: (acc: ConnectedAccount) => void;
   onRemoveAccount: (id: string) => void;
   onToggleAccountAi?: (id: string) => void;
+  calendars?: ConnectedCalendar[];
+  onAddCalendar?: (cal: ConnectedCalendar) => void;
+  onRemoveCalendar?: (id: string) => void;
   userProfile?: UserProfileData;
   onUpdateProfile?: (profile: UserProfileData) => void;
   tenantPolicy?: TenantAccountPolicy;
@@ -69,6 +91,9 @@ export function AccountManagerModal({
   onAddAccount,
   onRemoveAccount,
   onToggleAccountAi,
+  calendars = [],
+  onAddCalendar,
+  onRemoveCalendar,
   userProfile,
   onUpdateProfile,
   tenantPolicy = {
@@ -77,7 +102,7 @@ export function AccountManagerModal({
     personalAccountsAiMode: "single",
   },
 }: AccountManagerModalProps) {
-  const [activeTab, setActiveTab] = useState<"profile" | "list" | "add">("list");
+  const [activeTab, setActiveTab] = useState<"profile" | "list" | "add" | "calendars">("profile");
   const [provider, setProvider] = useState<"google" | "microsoft" | "imap_smtp">("imap_smtp");
 
   // Profile fields
@@ -87,6 +112,16 @@ export function AccountManagerModal({
   const [profileSignature, setProfileSignature] = useState(
     userProfile?.personalSignature || "Saludos cordiales,\nmeg-acizer"
   );
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | undefined>(userProfile?.avatarUrl);
+
+  // Avatar Upload, Zoom & Crop State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cropImageRef = useRef<HTMLImageElement | null>(null);
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [cropZoom, setCropZoom] = useState<number>(1.2);
+  const [cropOffset, setCropOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Account Form fields
   const [emailAddress, setEmailAddress] = useState("");
@@ -100,6 +135,14 @@ export function AccountManagerModal({
   const [smtpPort, setSmtpPort] = useState(587);
   const [password, setPassword] = useState("");
 
+  // Calendar Form fields
+  const [showAddCalendarForm, setShowAddCalendarForm] = useState(false);
+  const [calProvider, setCalProvider] = useState<"google" | "microsoft" | "caldav_ics">("google");
+  const [calName, setCalName] = useState("");
+  const [calEmailOrUrl, setCalEmailOrUrl] = useState("");
+  const [calColor, setCalColor] = useState("#10b981");
+  const [calSyncDirection, setCalSyncDirection] = useState<"two_way" | "read_only">("two_way");
+
   const [isTesting, setIsTesting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -109,6 +152,7 @@ export function AccountManagerModal({
       setProfileJobTitle(userProfile.jobTitle || "Colaborador");
       setProfilePhone(userProfile.phone || "");
       if (userProfile.personalSignature) setProfileSignature(userProfile.personalSignature);
+      setProfileAvatarUrl(userProfile.avatarUrl);
     }
   }, [userProfile, isOpen]);
 
@@ -118,9 +162,90 @@ export function AccountManagerModal({
   const corporateAccounts = accounts.filter((a) => a.isCorporateDefault || a.isDefault);
   const personalAiAccountsCount = personalAccounts.filter((a) => a.aiEnabled).length;
 
+  const corporateCalendars = calendars.filter((c) => c.isCorporateDefault);
+  const personalCalendars = calendars.filter((c) => !c.isCorporateDefault);
+
   const canAddMorePersonal =
     tenantPolicy.personalAccountsQuota === "unlimited" ||
     (tenantPolicy.personalAccountsQuota === "1" && personalAccounts.length < 1);
+
+  // Handlers for Image Upload, Zoom & Crop
+  const handleSelectImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setRawImageSrc(reader.result);
+        setCropZoom(1.2);
+        setCropOffset({ x: 0, y: 0 });
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingCrop(true);
+    setDragStart({ x: e.clientX - cropOffset.x, y: e.clientY - cropOffset.y });
+  };
+
+  const handleCropMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingCrop) return;
+    const nextX = Math.max(-160, Math.min(160, e.clientX - dragStart.x));
+    const nextY = Math.max(-160, Math.min(160, e.clientY - dragStart.y));
+    setCropOffset({ x: nextX, y: nextY });
+  };
+
+  const handleCropMouseUp = () => {
+    setIsDraggingCrop(false);
+  };
+
+  const handleApplyCrop = () => {
+    if (!rawImageSrc) return;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const size = 256;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // Circular mask / clean background
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, 0, size, size);
+
+      // Compute aspect-fit base scale inside 180px preview box mapped to 256px canvas
+      const ratio = size / 180;
+      const minSide = Math.min(img.width, img.height);
+      const drawW = (img.width / minSide) * size * cropZoom;
+      const drawH = (img.height / minSide) * size * cropZoom;
+
+      const centerX = size / 2 + cropOffset.x * ratio;
+      const centerY = size / 2 + cropOffset.y * ratio;
+
+      ctx.drawImage(img, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
+      const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      setProfileAvatarUrl(croppedDataUrl);
+      setRawImageSrc(null);
+
+      if (onUpdateProfile && userProfile) {
+        onUpdateProfile({
+          ...userProfile,
+          name: profileName,
+          jobTitle: profileJobTitle,
+          phone: profilePhone,
+          personalSignature: profileSignature,
+          avatarUrl: croppedDataUrl,
+        });
+      }
+      setFeedback("✓ Foto de perfil recortada y actualizada con éxito.");
+      setTimeout(() => setFeedback(null), 3500);
+    };
+    img.src = rawImageSrc;
+  };
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,9 +256,10 @@ export function AccountManagerModal({
         jobTitle: profileJobTitle,
         phone: profilePhone,
         personalSignature: profileSignature,
+        avatarUrl: profileAvatarUrl,
       });
     }
-    setFeedback("✓ Datos personales de tu perfil actualizados correctamente.");
+    setFeedback("✓ Datos personales e imagen de perfil guardados correctamente.");
     setTimeout(() => setFeedback(null), 3500);
   };
 
@@ -154,7 +280,6 @@ export function AccountManagerModal({
     setFeedback(null);
 
     try {
-      // Determine if this new personal account gets AI based on Tenant Admin policy
       const shouldEnableAi =
         tenantPolicy.personalAccountsAiMode === "all" ||
         (tenantPolicy.personalAccountsAiMode === "single" && personalAiAccountsCount === 0);
@@ -187,19 +312,51 @@ export function AccountManagerModal({
     }
   };
 
+  const handleCreateCalendar = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!calName.trim() || !calEmailOrUrl.trim() || !onAddCalendar) return;
+
+    const newCal: ConnectedCalendar = {
+      id: `cal-${Date.now()}`,
+      provider: calProvider,
+      name: calName.trim(),
+      accountEmailOrUrl: calEmailOrUrl.trim(),
+      color: calColor,
+      isCorporateDefault: false,
+      syncDirection: calSyncDirection,
+    };
+
+    onAddCalendar(newCal);
+    setCalName("");
+    setCalEmailOrUrl("");
+    setShowAddCalendarForm(false);
+    setFeedback(`✓ Calendario "${newCal.name}" sincronizado con tu agenda unificada.`);
+    setTimeout(() => setFeedback(null), 3500);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <User className="h-5 w-5" />
-            </div>
+          <div className="flex items-center gap-3">
+            {profileAvatarUrl ? (
+              <img
+                src={profileAvatarUrl}
+                alt={profileName}
+                className="h-10 w-10 rounded-full object-cover border-2 border-primary/40 shadow-sm shrink-0"
+              />
+            ) : (
+              <div className="p-2.5 rounded-full bg-primary/10 text-primary">
+                <User className="h-5 w-5" />
+              </div>
+            )}
             <div>
-              <h2 className="font-bold text-sm text-foreground">Mi Perfil Personal & Cuentas de Correo</h2>
+              <h2 className="font-bold text-sm text-foreground">
+                Mi Perfil, Cuentas de Correo & Mis Calendarios
+              </h2>
               <p className="text-xs text-muted-foreground">
-                Gestiona tus datos personales, tu cuenta corporativa asignada y tus cuentas propias adicionales
+                Personaliza tu foto (zoom y recorte), tus datos, correos y calendarios sincronizados
               </p>
             </div>
           </div>
@@ -212,7 +369,7 @@ export function AccountManagerModal({
         </div>
 
         {/* Modal Tabs */}
-        <div className="px-6 pt-3 border-b border-border flex gap-5 text-xs font-semibold">
+        <div className="px-6 pt-3 border-b border-border flex flex-wrap gap-4 text-xs font-semibold">
           <button
             onClick={() => setActiveTab("profile")}
             className={`pb-2.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
@@ -222,7 +379,7 @@ export function AccountManagerModal({
             }`}
           >
             <User className="h-3.5 w-3.5" />
-            <span>Mis Datos Personales</span>
+            <span>Mis Datos & Foto</span>
           </button>
           <button
             onClick={() => setActiveTab("list")}
@@ -233,7 +390,18 @@ export function AccountManagerModal({
             }`}
           >
             <Mail className="h-3.5 w-3.5" />
-            <span>Mis Cuentas ({accounts.length})</span>
+            <span>Mis Correos ({accounts.length})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("calendars")}
+            className={`pb-2.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "calendars"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            <span>Mis Calendarios ({calendars.length})</span>
           </button>
           <button
             onClick={() => setActiveTab("add")}
@@ -244,7 +412,7 @@ export function AccountManagerModal({
             }`}
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>Conectar Cuenta Propia</span>
+            <span>+ Conectar Correo</span>
           </button>
         </div>
 
@@ -257,31 +425,189 @@ export function AccountManagerModal({
             </div>
           )}
 
-          {/* TAB 1: MIS DATOS PERSONALES */}
+          {/* TAB 1: MIS DATOS PERSONALES & FOTO CON ZOOM Y CROP */}
           {activeTab === "profile" && (
             <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
-              <div className="p-3.5 rounded-xl bg-muted/30 border border-border flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-full bg-primary/15 text-primary font-bold text-base flex items-center justify-center border border-primary/20">
-                    {profileName.charAt(0).toUpperCase()}
+              {/* Avatar Upload & Cropper Section */}
+              <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3.5">
+                    <div className="relative group">
+                      {profileAvatarUrl ? (
+                        <img
+                          src={profileAvatarUrl}
+                          alt={profileName}
+                          className="h-16 w-16 rounded-full object-cover border-2 border-primary shadow-md"
+                        />
+                      ) : (
+                        <div className="h-16 w-16 rounded-full bg-primary/15 text-primary font-bold text-xl flex items-center justify-center border-2 border-primary/30">
+                          {(profileName || "U").slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-primary text-primary-foreground shadow-md hover:bg-primary/90 transition-transform hover:scale-105 cursor-pointer"
+                        title="Subir nueva foto de perfil"
+                      >
+                        <Camera className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <div className="font-bold text-sm text-foreground flex items-center gap-2">
+                        <span>{profileName}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase font-mono">
+                          {userProfile?.role || "Miembro"}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground">{userProfile?.email}</div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleSelectImageFile}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 font-semibold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors"
+                        >
+                          <Camera className="h-3 w-3" />
+                          <span>Subir Foto (Zoom & Recorte)</span>
+                        </button>
+                        {profileAvatarUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setProfileAvatarUrl(undefined)}
+                            className="px-2 py-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 text-[11px] cursor-pointer transition-colors"
+                          >
+                            Quitar foto
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="font-bold text-sm text-foreground flex items-center gap-2">
-                      <span>{profileName}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase font-mono">
-                        {userProfile?.role || "Miembro"}
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-muted-foreground block uppercase">Organización (Tenant)</span>
+                    <span className="font-bold text-foreground flex items-center gap-1 justify-end">
+                      <Building2 className="h-3.5 w-3.5 text-primary" />
+                      {userProfile?.tenantName || "Acme Corp"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Interactive Image Crop & Zoom Editor */}
+                {rawImageSrc && (
+                  <div className="mt-3 p-4 rounded-xl bg-card border-2 border-primary/30 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                        <Move className="h-3.5 w-3.5 text-primary" />
+                        Ajustar Encuadre y Zoom de tu Foto de Perfil
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Arrastra la imagen para centrar tu rostro
                       </span>
                     </div>
-                    <div className="text-muted-foreground">{userProfile?.email}</div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                      {/* Circular Crop Viewport (180x180) */}
+                      <div
+                        onMouseDown={handleCropMouseDown}
+                        onMouseMove={handleCropMouseMove}
+                        onMouseUp={handleCropMouseUp}
+                        onMouseLeave={handleCropMouseUp}
+                        className="relative h-[180px] w-[180px] rounded-full overflow-hidden border-4 border-primary shadow-inner bg-slate-900 cursor-move select-none shrink-0 flex items-center justify-center"
+                      >
+                        <img
+                          ref={cropImageRef}
+                          src={rawImageSrc}
+                          alt="Crop preview"
+                          draggable={false}
+                          style={{
+                            transform: `translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropZoom})`,
+                            transformOrigin: "center center",
+                          }}
+                          className="max-w-none h-[180px] w-[180px] object-cover pointer-events-none select-none transition-transform duration-75"
+                        />
+                        {/* Subtle circular guide overlay */}
+                        <div className="absolute inset-0 rounded-full ring-1 ring-inset ring-white/20 pointer-events-none" />
+                      </div>
+
+                      {/* Zoom Controls & Actions */}
+                      <div className="flex-1 w-full space-y-3">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-muted-foreground flex items-center gap-1">
+                              <ZoomIn className="h-3.5 w-3.5 text-primary" />
+                              Nivel de Zoom
+                            </span>
+                            <span className="font-mono font-bold text-foreground">
+                              {Math.round(cropZoom * 100)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setCropZoom((z) => Math.max(1, Number((z - 0.1).toFixed(2))))}
+                              className="p-1 rounded bg-muted hover:bg-muted/80 text-foreground cursor-pointer"
+                            >
+                              <ZoomOut className="h-3.5 w-3.5" />
+                            </button>
+                            <input
+                              type="range"
+                              min="1"
+                              max="3"
+                              step="0.05"
+                              value={cropZoom}
+                              onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                              className="flex-1 accent-primary cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setCropZoom((z) => Math.min(3, Number((z + 0.1).toFixed(2))))}
+                              className="p-1 rounded bg-muted hover:bg-muted/80 text-foreground cursor-pointer"
+                            >
+                              <ZoomIn className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCropZoom(1.2);
+                              setCropOffset({ x: 0, y: 0 });
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg border border-border bg-muted/50 hover:bg-muted text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            <span>Reiniciar</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRawImageSrc(null)}
+                            className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted text-xs text-muted-foreground cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleApplyCrop}
+                            className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 shadow-sm flex items-center gap-1.5 cursor-pointer ml-auto"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            <span>Aplicar Recorte</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-muted-foreground block uppercase">Organización (Tenant)</span>
-                  <span className="font-bold text-foreground flex items-center gap-1 justify-end">
-                    <Building2 className="h-3.5 w-3.5 text-primary" />
-                    {userProfile?.tenantName || "Acme Corp"}
-                  </span>
-                </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -484,7 +810,6 @@ export function AccountManagerModal({
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {/* Si el admin permite IA en 1 cuenta propia, dejar elegir en cuál */}
                           {tenantPolicy.personalAccountsAiMode === "single" && onToggleAccountAi && (
                             <button
                               type="button"
@@ -516,7 +841,273 @@ export function AccountManagerModal({
             </div>
           )}
 
-          {/* TAB 3: CONECTAR NUEVA CUENTA PROPIA */}
+          {/* TAB 3: MIS CALENDARIOS (CORPORATIVO + PROPIOS) */}
+          {activeTab === "calendars" && (
+            <div className="space-y-5 text-xs">
+              <div className="p-3.5 rounded-xl bg-muted/30 border border-border flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-foreground flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    Sincronización Multi-Calendario
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Combina el calendario corporativo de la empresa con tus calendarios personales (Google Calendar, Outlook 365 o CalDAV/ICS) para detectar conflictos automáticamente.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCalendarForm(!showAddCalendarForm)}
+                  className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>{showAddCalendarForm ? "Cerrar Formulario" : "Agregar Calendario"}</span>
+                </button>
+              </div>
+
+              {/* Add Calendar Inline Form */}
+              {showAddCalendarForm && (
+                <form
+                  onSubmit={handleCreateCalendar}
+                  className="p-4 rounded-xl bg-card border-2 border-primary/30 space-y-3.5 animate-in fade-in"
+                >
+                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                    <span className="font-bold text-xs text-foreground">Vincular Nuevo Calendario Personal</span>
+                    <span className="text-[10px] text-muted-foreground">Privacidad protegida por defecto</span>
+                  </div>
+
+                  {/* Provider selector */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalProvider("google");
+                        setCalColor("#3b82f6");
+                      }}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                        calProvider === "google"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span>Google Calendar</span>
+                      <span className="text-[10px] opacity-75">OAuth 2.0</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalProvider("microsoft");
+                        setCalColor("#f97316");
+                      }}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                        calProvider === "microsoft"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span>Outlook / M365</span>
+                      <span className="text-[10px] opacity-75">Graph Calendar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalProvider("caldav_ics");
+                        setCalColor("#10b981");
+                      }}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
+                        calProvider === "caldav_ics"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-muted/20 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span>CalDAV / iCloud / ICS</span>
+                      <span className="text-[10px] opacity-75">URL o Servidor</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                        Nombre del Calendario *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={calName}
+                        onChange={(e) => setCalName(e.target.value)}
+                        placeholder="Ej: Agenda Médica / Familia / Consultoría"
+                        className="w-full bg-muted/40 border border-border px-3 py-1.5 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                        {calProvider === "caldav_ics" ? "URL CalDAV o Feed .ICS *" : "Cuenta de Correo Asociada *"}
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={calEmailOrUrl}
+                        onChange={(e) => setCalEmailOrUrl(e.target.value)}
+                        placeholder={
+                          calProvider === "caldav_ics"
+                            ? "https://caldav.icloud.com/..."
+                            : "mi.agenda@gmail.com"
+                        }
+                        className="w-full bg-muted/40 border border-border px-3 py-1.5 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                        Modo de Sincronización
+                      </label>
+                      <select
+                        value={calSyncDirection}
+                        onChange={(e) => setCalSyncDirection(e.target.value as "two_way" | "read_only")}
+                        className="w-full bg-muted/40 border border-border px-3 py-1.5 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                      >
+                        <option value="two_way">🔄 Bidireccional (Leer y crear eventos)</option>
+                        <option value="read_only">👁️ Solo Lectura (Bloquear disponibilidad)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                        Color Identificador
+                      </label>
+                      <div className="flex items-center gap-2 pt-1">
+                        {["#10b981", "#3b82f6", "#f97316", "#8b5cf6", "#ec4899", "#eab308"].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setCalColor(c)}
+                            className={`h-6 w-6 rounded-full border-2 transition-transform cursor-pointer ${
+                              calColor === c ? "scale-110 border-foreground" : "border-transparent opacity-75"
+                            }`}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCalendarForm(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer shadow-sm"
+                    >
+                      Conectar Calendario
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* 1. Corporate Default Calendar */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-primary" />
+                  Calendario Corporativo Default (Empresa & Salas)
+                </h4>
+                {corporateCalendars.map((cal) => (
+                  <div
+                    key={cal.id}
+                    className="p-3.5 rounded-xl border-2 border-primary/30 bg-primary/5 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="h-3.5 w-3.5 rounded-full shrink-0"
+                        style={{ backgroundColor: cal.color }}
+                      />
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-xs text-foreground">{cal.name}</span>
+                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground">
+                            {cal.provider}
+                          </span>
+                          <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
+                            🏢 Default Empresa
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                          {cal.accountEmailOrUrl}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1 shrink-0">
+                      <Lock className="h-3 w-3" />
+                      Activo
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* 2. Personal Calendars List */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-emerald-500" />
+                  Mis Calendarios Propios ({personalCalendars.length})
+                </h4>
+
+                {personalCalendars.length === 0 ? (
+                  <div className="p-6 rounded-xl border border-dashed border-border text-center text-xs text-muted-foreground">
+                    No has vinculado calendarios personales adicionales. Pulsa &quot;Agregar Calendario&quot; arriba para sumar Google Calendar, Outlook o CalDAV.
+                  </div>
+                ) : (
+                  personalCalendars.map((cal) => (
+                    <div
+                      key={cal.id}
+                      className="p-3.5 rounded-xl border border-border bg-card flex items-center justify-between gap-3 hover:border-border/80"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="h-3.5 w-3.5 rounded-full shrink-0"
+                          style={{ backgroundColor: cal.color }}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-xs text-foreground">{cal.name}</span>
+                            <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground">
+                              {cal.provider}
+                            </span>
+                            <span className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                              {cal.syncDirection === "two_way" ? "🔄 Bidireccional" : "👁️ Solo Lectura"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                            {cal.accountEmailOrUrl}
+                          </p>
+                        </div>
+                      </div>
+
+                      {onRemoveCalendar && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveCalendar(cal.id)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
+                          title="Desvincular calendario"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: CONECTAR NUEVA CUENTA DE CORREO PROPIA */}
           {activeTab === "add" && (
             <form onSubmit={handleCreateAccount} className="space-y-4">
               {!canAddMorePersonal && (

@@ -117,12 +117,18 @@ const INITIAL_EVENTS: CalendarEvent[] = [
   },
 ];
 
+import type { ConnectedCalendar } from "../account-manager-modal";
+
 interface CalendarViewProps {
   currentUser?: { name: string; email: string; role?: string };
+  personalCalendars?: ConnectedCalendar[];
+  onOpenProfileCalendars?: () => void;
 }
 
 export function CalendarView({
   currentUser = { name: "meg-acizer", email: "meg@worvanta.io", role: "admin" },
+  personalCalendars = [],
+  onOpenProfileCalendars,
 }: CalendarViewProps) {
   const [viewMode, setViewMode] = useState<"week" | "day" | "rooms" | "availability">("week");
   const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
@@ -419,10 +425,23 @@ export function CalendarView({
 
           {/* Bloque 2: Mis Agendas Personales */}
           <div className="space-y-2 pt-3 border-t border-border/60">
-            <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Lock className="h-3.5 w-3.5 text-emerald-500" />
-              Mis Agendas Personales
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Lock className="h-3.5 w-3.5 text-emerald-500" />
+                Mis Calendarios Propios
+              </h3>
+              {onOpenProfileCalendars && (
+                <button
+                  type="button"
+                  onClick={onOpenProfileCalendars}
+                  className="text-[10px] font-semibold text-primary hover:underline cursor-pointer flex items-center gap-0.5"
+                  title="Vincular nuevo calendario en Mi Perfil"
+                >
+                  <Plus className="h-3 w-3" />
+                  <span>Agregar</span>
+                </button>
+              )}
+            </div>
             <div className="space-y-1.5 text-xs text-foreground">
               <label className="flex items-center gap-2 hover:bg-muted/40 p-1 rounded cursor-pointer">
                 <input
@@ -434,6 +453,34 @@ export function CalendarView({
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-600 shrink-0" />
                 <span className="truncate">Agenda Privada (Solo tú)</span>
               </label>
+
+              {personalCalendars
+                .filter((c) => !c.isCorporateDefault)
+                .map((cal) => (
+                  <label
+                    key={cal.id}
+                    className="flex items-center gap-2 hover:bg-muted/40 p-1 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedCalendars[cal.id] ?? true}
+                      onChange={() =>
+                        setSelectedCalendars((prev) => ({
+                          ...prev,
+                          [cal.id]: !(prev[cal.id] ?? true),
+                        }))
+                      }
+                      className="rounded accent-primary"
+                    />
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: cal.color }}
+                    />
+                    <span className="truncate" title={cal.accountEmailOrUrl}>
+                      {cal.name}
+                    </span>
+                  </label>
+                ))}
             </div>
           </div>
 

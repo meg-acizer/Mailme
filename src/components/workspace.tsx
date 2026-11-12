@@ -14,6 +14,7 @@ import { FilesView } from "./views/files-view";
 import {
   AccountManagerModal,
   type ConnectedAccount,
+  type ConnectedCalendar,
   type TenantAccountPolicy,
   type UserProfileData,
 } from "./account-manager-modal";
@@ -344,6 +345,37 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       color: "#10b981",
       isCorporateDefault: false,
       aiEnabled: false,
+    },
+  ]);
+
+  // User Connected Calendars State (Corporate Default + Personal Calendars)
+  const [calendarsList, setCalendarsList] = useState<ConnectedCalendar[]>([
+    {
+      id: "cal-1",
+      provider: user?.corporateProvider === "google" ? "google" : "microsoft",
+      name: "Calendario Corporativo & Salas",
+      accountEmailOrUrl: user?.email || "lbenitez@innovasoft.com",
+      color: "#3b82f6",
+      isCorporateDefault: true,
+      syncDirection: "two_way",
+    },
+    {
+      id: "cal-2",
+      provider: "google",
+      name: "Agenda Personal (Google Calendar)",
+      accountEmailOrUrl: "cmendoza.personal@gmail.com",
+      color: "#10b981",
+      isCorporateDefault: false,
+      syncDirection: "two_way",
+    },
+    {
+      id: "cal-3",
+      provider: "caldav_ics",
+      name: "iCloud / Familia (CalDAV)",
+      accountEmailOrUrl: "https://caldav.icloud.com/109283/calendars/home",
+      color: "#8b5cf6",
+      isCorporateDefault: false,
+      syncDirection: "read_only",
     },
   ]);
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
@@ -1220,18 +1252,26 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
               type="button"
               onClick={() => setIsAccountsModalOpen(true)}
               className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-card border border-border hover:border-primary/40 hover:bg-muted/60 transition-all cursor-pointer group"
-              title="Editar mis datos personales y gestionar mis cuentas de correo (Empresa + Propias)"
+              title="Editar mis datos personales, foto de perfil, correos y calendarios"
             >
               <div className="flex items-center gap-2 truncate">
-                <div className="h-6 w-6 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">
-                  {(userProfile.name || "U").slice(0, 2).toUpperCase()}
-                </div>
+                {userProfile.avatarUrl ? (
+                  <img
+                    src={userProfile.avatarUrl}
+                    alt={userProfile.name}
+                    className="h-7 w-7 rounded-full object-cover border border-primary/40 shrink-0"
+                  />
+                ) : (
+                  <div className="h-7 w-7 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">
+                    {(userProfile.name || "U").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
                 <div className="text-left truncate">
                   <div className="font-semibold text-xs text-foreground truncate group-hover:text-primary transition-colors">
                     {userProfile.name}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate">
-                    Mi Perfil & Cuentas ({accountsList.length})
+                    Perfil, Correos ({accountsList.length}) & Agendas ({calendarsList.length})
                   </div>
                 </div>
               </div>
@@ -1399,9 +1439,17 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
               type="button"
               onClick={() => setIsAccountsModalOpen(true)}
               className="flex items-center gap-1.5 text-xs bg-muted/60 hover:bg-muted border border-border px-2.5 py-1 rounded-lg font-medium text-foreground transition-colors cursor-pointer"
-              title="Mi Perfil Personal & Cuentas de Correo"
+              title="Mi Perfil Personal, Foto, Cuentas de Correo y Calendarios"
             >
-              <Settings2 className="h-3.5 w-3.5 text-primary" />
+              {userProfile.avatarUrl ? (
+                <img
+                  src={userProfile.avatarUrl}
+                  alt={userProfile.name}
+                  className="h-5 w-5 rounded-full object-cover border border-primary/40 shrink-0"
+                />
+              ) : (
+                <Settings2 className="h-3.5 w-3.5 text-primary" />
+              )}
               <span className="hidden lg:inline">{userProfile.name}</span>
               <span className="text-[10px] font-mono bg-primary/15 text-primary px-1.5 py-0.2 rounded">
                 Perfil & Cuentas
@@ -1431,10 +1479,12 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         ) : activeModule === "calendar" ? (
           <CalendarView
             currentUser={{
-              name: user?.name || "meg-acizer",
-              email: user?.email || "meg@worvanta.io",
+              name: userProfile.name || user?.name || "meg-acizer",
+              email: userProfile.email || user?.email || "meg@worvanta.io",
               role: user?.role || "admin",
             }}
+            personalCalendars={calendarsList}
+            onOpenProfileCalendars={() => setIsAccountsModalOpen(true)}
           />
         ) : activeModule === "chat" ? (
           <TeamChatView />
@@ -2173,10 +2223,21 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         isOpen={isAccountsModalOpen}
         onClose={() => setIsAccountsModalOpen(false)}
         accounts={accountsList}
+        calendars={calendarsList}
+        onAddCalendar={(newCal) => {
+          setCalendarsList((prev) => [...prev, newCal]);
+          setActionNotice(`📅 Calendario "${newCal.name}" vinculado con éxito`);
+          setTimeout(() => setActionNotice(null), 4000);
+        }}
+        onRemoveCalendar={(calId) => {
+          setCalendarsList((prev) => prev.filter((c) => c.id !== calId));
+          setActionNotice("Calendario propio desvinculado");
+          setTimeout(() => setActionNotice(null), 4000);
+        }}
         userProfile={userProfile}
         onUpdateProfile={(profile) => {
           setUserProfile(profile);
-          setActionNotice("✓ Datos personales del perfil actualizados");
+          setActionNotice("✓ Datos personales e imagen de perfil actualizados");
           setTimeout(() => setActionNotice(null), 3500);
         }}
         tenantPolicy={tenantPolicy}
