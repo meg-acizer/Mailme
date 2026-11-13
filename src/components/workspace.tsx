@@ -17,6 +17,7 @@ import {
   type ConnectedCalendar,
   type TenantAccountPolicy,
   type UserProfileData,
+  type TenantCompanyData,
 } from "./account-manager-modal";
 import { WorvantaLogo } from "./ui/worvanta-logo";
 import {
@@ -334,13 +335,37 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [col3Open, setCol3Open] = useState(true);
   const [col4Open, setCol4Open] = useState(true);
 
+  // Tenant Company Identity & Fiscal Data State
+  const inferredInitialCompanyName =
+    (user?.tenantName && user.tenantName !== "Acme Corp" ? user.tenantName : "") ||
+    (user?.email ? user.email.split("@")[1]?.split(".")[0]?.toUpperCase() : "") ||
+    "Acizer";
+
+  const [companyData, setCompanyData] = useState<TenantCompanyData>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`worvanta_company_${user?.email || user?.id || "default"}`);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return {
+      name: inferredInitialCompanyName,
+      legalName: "",
+      taxId: "",
+      address: "",
+      website: user?.email ? `https://${user.email.split("@")[1]}` : "https://acizer.com.ar",
+      phone: "",
+    };
+  });
+
   // User Profile & Tenant Policy State
   const [userProfile, setUserProfile] = useState<UserProfileData>({
     name: user?.name || "meg-acizer",
     email: user?.email || "meg@empresa.com",
     jobTitle: "Director de Operaciones",
     phone: "+54 11 5000-1234",
-    personalSignature: `Saludos cordiales,\n${user?.name || "meg-acizer"} | ${user?.tenantName || "Empresa"}`,
+    personalSignature: `Saludos cordiales,\n${user?.name || "meg-acizer"} | ${companyData?.name || user?.tenantName || "Acizer"}`,
+    tenantName: companyData?.name || user?.tenantName || "Acizer",
   });
 
   const [tenantPolicy, setTenantPolicy] = useState<TenantAccountPolicy>({
@@ -720,7 +745,21 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       const parsedAccounts: ConnectedAccount[] = savedAccountsRaw ? JSON.parse(savedAccountsRaw) : [];
       const parsedEmails: EmailItem[] = savedEmailsRaw ? JSON.parse(savedEmailsRaw) : [];
 
-      setAccountsList(parsedAccounts);
+      // Sanitize parsedAccounts: ensure corporate default account reflects companyData.name instead of "Acme Corp"
+      const currentCompName = companyData.name || user?.tenantName || "Acizer";
+      const sanitizedAccounts = parsedAccounts.map((acc) => {
+        if (
+          acc.isCorporateDefault &&
+          (acc.displayName === "Acme Corp" ||
+            acc.displayName.includes("Acme Corp") ||
+            acc.displayName.toLowerCase().includes("default"))
+        ) {
+          return { ...acc, displayName: currentCompName };
+        }
+        return acc;
+      });
+
+      setAccountsList(sanitizedAccounts);
       setEmailsList(parsedEmails);
 
       if (parsedEmails.length > 0) {
@@ -732,20 +771,20 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           senderName: "Bandeja de Correo Real",
           senderEmail: user?.email || "",
           subject:
-            parsedAccounts.length === 0
+            sanitizedAccounts.length === 0
               ? "Conecta tu cuenta de correo principal para comenzar"
               : "Tu bandeja está sincronizada y lista",
           preview:
-            parsedAccounts.length === 0
+            sanitizedAccounts.length === 0
               ? "Configura tu servidor IMAP/SMTP para descargar tus correos reales sin datos de prueba."
               : "Haz clic en 'Sincronizar' para buscar nuevos correos en tu servidor IMAP.",
           time: "Ahora",
           isUnread: false,
           triage: "important",
           account: {
-            id: parsedAccounts[0]?.id || "none",
-            name: parsedAccounts[0]?.displayName || user?.tenantName || "Principal",
-            color: parsedAccounts[0]?.color || "#3b82f6",
+            id: sanitizedAccounts[0]?.id || "none",
+            name: sanitizedAccounts[0]?.displayName || companyData.name || user?.tenantName || "Principal",
+            color: sanitizedAccounts[0]?.color || "#3b82f6",
           },
           aiSummary: "Sin mensajes seleccionados.",
           priority: "normal",
@@ -864,6 +903,42 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
     setTimeout(() => setActionNotice(null), 3500);
   };
 
+  const handleUpdateCompanyData = (updated: TenantCompanyData) => {
+    setCompanyData(updated);
+    setUserProfile((prev) => ({
+      ...prev,
+      tenantName: updated.name,
+    }));
+    try {
+      localStorage.setItem(
+        `worvanta_company_${user?.email || user?.id || "default"}`,
+        JSON.stringify(updated)
+      );
+      const sessionRaw = localStorage.getItem("mailme_session_user");
+      if (sessionRaw) {
+        const parsed = JSON.parse(sessionRaw);
+        parsed.tenantName = updated.name;
+        localStorage.setItem("mailme_session_user", JSON.stringify(parsed));
+      }
+    } catch {}
+
+    // Actualizar nombre de la cuenta corporativa default
+    setAccountsList((prev) =>
+      prev.map((acc) => {
+        if (acc.isCorporateDefault) {
+          return {
+            ...acc,
+            displayName: updated.name,
+          };
+        }
+        return acc;
+      })
+    );
+
+    setActionNotice(`✓ Datos de la empresa "${updated.name}" actualizados`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
   const handleConnectPrimaryImapAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setOnboardingError(null);
@@ -874,7 +949,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "connect_and_sync",
-          accountName: user?.tenantName || onboardingImapEmail.split("@")[0],
+          accountName: companyData.name || user?.tenantName || onboardingImapEmail.split("@")[0],
           accountColor: "#3b82f6",
           email: onboardingImapEmail.trim(),
           imapHost: onboardingImapHost.trim(),
@@ -3904,6 +3979,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         onClose={() => setIsAccountsModalOpen(false)}
         accounts={accountsList}
         calendars={calendarsList}
+        companyData={companyData}
+        onUpdateCompanyData={handleUpdateCompanyData}
         onAddCalendar={(newCal) => {
           setCalendarsList((prev) => [...prev, newCal]);
           setActionNotice(`📅 Calendario "${newCal.name}" vinculado con éxito`);

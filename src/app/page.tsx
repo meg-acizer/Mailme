@@ -60,7 +60,7 @@ export default function Home() {
   if (viewMode === "admin") {
     return (
       <TenantAdminView
-        tenantName={currentUser.tenantName || "Acme Corp"}
+        tenantName={currentUser.tenantName || "Acizer"}
         onBackToWorkspace={() => setViewMode("workspace")}
       />
     );

@@ -46,15 +46,20 @@ export function AuthView({ onSuccess }: AuthViewProps) {
         password,
       });
 
+      const domainPart = (email.split("@")[1] || "").split(".")[0];
+      const defaultTenantFromDomain = domainPart
+        ? domainPart.charAt(0).toUpperCase() + domainPart.slice(1)
+        : "Acizer";
+
       if (!error && data?.user) {
         onSuccess({
           id: data.user.id,
           email: data.user.email || email,
           name: data.user.user_metadata?.full_name || email.split("@")[0],
-          tenantName: data.user.user_metadata?.tenant_name || "Acme Corp",
+          tenantName: data.user.user_metadata?.tenant_name || defaultTenantFromDomain,
           role: data.user.user_metadata?.role || "owner",
           tenantPlan: data.user.user_metadata?.tenant_plan || "business_ai",
-          corporateProvider: data.user.user_metadata?.corporate_provider || "microsoft",
+          corporateProvider: data.user.user_metadata?.corporate_provider || "imap_smtp",
         });
         return;
       }
@@ -64,21 +69,25 @@ export function AuthView({ onSuccess }: AuthViewProps) {
           id: "local-user-1",
           email,
           name: email.split("@")[0],
-          tenantName: "Acme Corp",
+          tenantName: defaultTenantFromDomain,
           role: "owner",
           tenantPlan: "business_ai",
-          corporateProvider: "microsoft",
+          corporateProvider: "imap_smtp",
         });
       }
     } catch {
+      const domainPart = (email.split("@")[1] || "").split(".")[0];
+      const defaultTenantFromDomain = domainPart
+        ? domainPart.charAt(0).toUpperCase() + domainPart.slice(1)
+        : "Acizer";
       onSuccess({
         id: "local-user-1",
         email: email || "usuario@worvanta.local",
         name: (email || "usuario").split("@")[0],
-        tenantName: "Acme Corp",
+        tenantName: defaultTenantFromDomain,
         role: "owner",
         tenantPlan: "business_ai",
-        corporateProvider: "microsoft",
+        corporateProvider: "imap_smtp",
       });
     } finally {
       setLoading(false);

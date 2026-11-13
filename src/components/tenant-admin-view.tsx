@@ -480,7 +480,7 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   ]);
   const [newBlacklistDomain, setNewBlacklistDomain] = useState("");
   const [signatureTemplate, setSignatureTemplate] = useState(
-    "--\n{nombre_completo} | {cargo}\nAcme Corp\nT: +54 11 4000-0000 | www.acme.com"
+    `--\n{nombre_completo} | {cargo}\n${tenantName || "Acizer"}\nT: +54 11 4000-0000 | www.${(tenantName || "acizer").toLowerCase().replace(/[^a-z0-9]/g, "")}.com.ar`
   );
   const [isEditingSignature, setIsEditingSignature] = useState(false);
   const [isSavingPolicies, setIsSavingPolicies] = useState(false);

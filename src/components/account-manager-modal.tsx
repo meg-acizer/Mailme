@@ -27,6 +27,10 @@ import {
   Link2,
   Check,
   RotateCcw,
+  Globe,
+  MapPin,
+  FileText,
+  CreditCard,
 } from "lucide-react";
 
 export interface ConnectedAccount {
@@ -59,6 +63,15 @@ export interface TenantAccountPolicy {
   personalAccountsAiMode: "none" | "single" | "all"; // none = solo Antispam/ClamAV; single = 1 cuenta con IA; all = todas con IA
 }
 
+export interface TenantCompanyData {
+  name: string;
+  legalName?: string;
+  taxId?: string;
+  address?: string;
+  website?: string;
+  phone?: string;
+}
+
 export interface UserProfileData {
   name: string;
   email: string;
@@ -83,6 +96,8 @@ interface AccountManagerModalProps {
   userProfile?: UserProfileData;
   onUpdateProfile?: (profile: UserProfileData) => void;
   tenantPolicy?: TenantAccountPolicy;
+  companyData?: TenantCompanyData;
+  onUpdateCompanyData?: (data: TenantCompanyData) => void;
 }
 
 export function AccountManagerModal({
@@ -102,8 +117,10 @@ export function AccountManagerModal({
     personalAccountsQuota: "unlimited",
     personalAccountsAiMode: "single",
   },
+  companyData,
+  onUpdateCompanyData,
 }: AccountManagerModalProps) {
-  const [activeTab, setActiveTab] = useState<"profile" | "list" | "calendars">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "company" | "list" | "calendars">("profile");
   const [showAddAccountForm, setShowAddAccountForm] = useState(false);
   const [provider, setProvider] = useState<"google" | "microsoft" | "imap_smtp">("imap_smtp");
 
@@ -115,6 +132,16 @@ export function AccountManagerModal({
     userProfile?.personalSignature || "Saludos cordiales,\nmeg-acizer"
   );
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | undefined>(userProfile?.avatarUrl);
+
+  // Company / Tenant fields (Nombre comercial, Razón Social, CUIT, Dirección, Web, Teléfonos)
+  const [compName, setCompName] = useState(
+    companyData?.name || userProfile?.tenantName || "Acizer"
+  );
+  const [compLegalName, setCompLegalName] = useState(companyData?.legalName || "");
+  const [compTaxId, setCompTaxId] = useState(companyData?.taxId || "");
+  const [compAddress, setCompAddress] = useState(companyData?.address || "");
+  const [compWebsite, setCompWebsite] = useState(companyData?.website || "");
+  const [compPhone, setCompPhone] = useState(companyData?.phone || "");
 
   // Avatar Upload, Zoom & Crop State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,7 +184,44 @@ export function AccountManagerModal({
       if (userProfile.personalSignature) setProfileSignature(userProfile.personalSignature);
       setProfileAvatarUrl(userProfile.avatarUrl);
     }
-  }, [userProfile, isOpen]);
+    if (companyData) {
+      if (companyData.name) setCompName(companyData.name);
+      if (companyData.legalName !== undefined) setCompLegalName(companyData.legalName);
+      if (companyData.taxId !== undefined) setCompTaxId(companyData.taxId);
+      if (companyData.address !== undefined) setCompAddress(companyData.address);
+      if (companyData.website !== undefined) setCompWebsite(companyData.website);
+      if (companyData.phone !== undefined) setCompPhone(companyData.phone);
+    } else if (userProfile?.tenantName) {
+      setCompName(userProfile.tenantName);
+    }
+  }, [userProfile, companyData, isOpen]);
+
+  const handleSaveCompany = (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalName = compName.trim() || userProfile?.tenantName || "Acizer";
+    const updated: TenantCompanyData = {
+      name: finalName,
+      legalName: compLegalName.trim(),
+      taxId: compTaxId.trim(),
+      address: compAddress.trim(),
+      website: compWebsite.trim(),
+      phone: compPhone.trim(),
+    };
+
+    if (onUpdateCompanyData) {
+      onUpdateCompanyData(updated);
+    }
+
+    if (onUpdateProfile && userProfile) {
+      onUpdateProfile({
+        ...userProfile,
+        tenantName: finalName,
+      });
+    }
+
+    setFeedback(`✓ Datos de "${finalName}" guardados y actualizados en toda la organización.`);
+    setTimeout(() => setFeedback(null), 3500);
+  };
 
   if (!isOpen) return null;
 
@@ -391,6 +455,17 @@ export function AccountManagerModal({
             <span>Mis Datos & Foto</span>
           </button>
           <button
+            onClick={() => setActiveTab("company")}
+            className={`pb-2.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "company"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>Datos de la Empresa</span>
+          </button>
+          <button
             onClick={() => setActiveTab("list")}
             className={`pb-2.5 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeTab === "list"
@@ -490,11 +565,19 @@ export function AccountManagerModal({
                   </div>
 
                   <div className="text-right">
-                    <span className="text-[10px] text-muted-foreground block uppercase">Organización (Tenant)</span>
-                    <span className="font-bold text-foreground flex items-center gap-1 justify-end">
+                    <span className="text-[10px] text-muted-foreground block uppercase">Organización (Empresa)</span>
+                    <span className="font-bold text-foreground flex items-center gap-1 justify-end text-sm">
                       <Building2 className="h-3.5 w-3.5 text-primary" />
-                      {userProfile?.tenantName || "Acme Corp"}
+                      {compName || userProfile?.tenantName || "Acizer"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("company")}
+                      className="text-[11px] text-primary hover:underline font-semibold mt-1 inline-flex items-center gap-1 cursor-pointer bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded transition-colors"
+                      title="Configurar Nombre, Razón Social, CUIT, Dirección, Web y Teléfonos"
+                    >
+                      <span>Cambiar datos de empresa →</span>
+                    </button>
                   </div>
                 </div>
 
@@ -679,7 +762,167 @@ export function AccountManagerModal({
             </form>
           )}
 
-          {/* TAB 2: MIS CUENTAS DE CORREO */}
+          {/* TAB: DATOS DE LA EMPRESA / ORGANIZACIÓN */}
+          {activeTab === "company" && (
+            <form onSubmit={handleSaveCompany} className="space-y-4 text-xs animate-in fade-in">
+              <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+                  <Building2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-foreground">
+                    Identidad y Datos de la Empresa (Tenant)
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                    Personaliza el nombre de tu empresa, razón social, CUIT, dirección, sitio web y teléfonos de contacto comercial. Estos datos se aplicarán en tu cuenta corporativa default, firmas y encabezados.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* 1. Nombre de la Empresa (Comercial / Fantasía) */}
+                <div>
+                  <label className="block font-semibold text-foreground mb-1">
+                    Nombre de la Empresa (Comercial / Fantasía) *
+                  </label>
+                  <div className="relative">
+                    <Building2 className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      required
+                      value={compName}
+                      onChange={(e) => setCompName(e.target.value)}
+                      placeholder="Ej: Acizer"
+                      className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                    Nombre visible en bandejas corporativas y políticas.
+                  </span>
+                </div>
+
+                {/* 2. Razón Social */}
+                <div>
+                  <label className="block font-semibold text-foreground mb-1">
+                    Razón Social
+                  </label>
+                  <div className="relative">
+                    <FileText className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={compLegalName}
+                      onChange={(e) => setCompLegalName(e.target.value)}
+                      placeholder="Ej: Acizer Soluciones Integrales S.A."
+                      className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                    Nombre legal o societario registrado ante organismos.
+                  </span>
+                </div>
+
+                {/* 3. CUIT / Identificación Fiscal */}
+                <div>
+                  <label className="block font-semibold text-foreground mb-1">
+                    CUIT / Identificación Fiscal
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={compTaxId}
+                      onChange={(e) => setCompTaxId(e.target.value)}
+                      placeholder="Ej: 30-71234567-9"
+                      className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                    Clave Única de Identificación Tributaria (AFIP / ARCA).
+                  </span>
+                </div>
+
+                {/* 4. Teléfonos de Contacto */}
+                <div>
+                  <label className="block font-semibold text-foreground mb-1">
+                    Teléfonos de Contacto
+                  </label>
+                  <div className="relative">
+                    <Phone className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={compPhone}
+                      onChange={(e) => setCompPhone(e.target.value)}
+                      placeholder="Ej: +54 11 5000-1234 / +54 9 11 3456-7890"
+                      className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                    Líneas de atención comercial, soporte o WhatsApp.
+                  </span>
+                </div>
+              </div>
+
+              {/* 5. Página Web */}
+              <div>
+                <label className="block font-semibold text-foreground mb-1">
+                  Página Web
+                </label>
+                <div className="relative">
+                  <Globe className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={compWebsite}
+                    onChange={(e) => setCompWebsite(e.target.value)}
+                    placeholder="Ej: https://acizer.com.ar"
+                    className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* 6. Dirección */}
+              <div>
+                <label className="block font-semibold text-foreground mb-1">
+                  Dirección Fiscal / Sede Comercial
+                </label>
+                <div className="relative">
+                  <MapPin className="h-3.5 w-3.5 absolute left-3 top-2.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={compAddress}
+                    onChange={(e) => setCompAddress(e.target.value)}
+                    placeholder="Ej: Av. Corrientes 1234, Piso 4, CABA, Argentina"
+                    className="w-full bg-muted/40 border border-border pl-8 pr-3 py-2 rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
+                <span>
+                  Los datos ingresados se guardan de forma persistente para este espacio de trabajo y se reflejan en todos los módulos de tu organización.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("list")}
+                  className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted text-muted-foreground hover:text-foreground text-xs cursor-pointer"
+                >
+                  Ver Cuentas de Correo →
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>Guardar Datos de la Empresa</span>
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* TAB 3: MIS CUENTAS DE CORREO */}
           {activeTab === "list" && (
             <div className="space-y-5">
               {/* Banner de Política del Tenant Admin */}
@@ -687,7 +930,7 @@ export function AccountManagerModal({
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-foreground flex items-center gap-1.5">
                     <Shield className="h-4 w-4 text-primary" />
-                    Política de tu Organización ({userProfile?.tenantName || "Acme Corp"})
+                    Política de tu Organización ({compName || userProfile?.tenantName || "Acizer"})
                   </span>
                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-primary/15 text-primary">
                     Plan {tenantPolicy.plan.replace("_", " ").toUpperCase()}
@@ -705,44 +948,61 @@ export function AccountManagerModal({
 
               {/* 1. Cuenta Corporativa Default (Creada en el Tenant Admin) */}
               <div className="space-y-2">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-primary" />
-                  Cuenta Corporativa Default (Asignada por la Empresa)
-                </h3>
-                {corporateAccounts.map((acc) => (
-                  <div
-                    key={acc.id}
-                    className="p-4 rounded-xl border-2 border-primary/30 bg-primary/5 flex items-center justify-between gap-3"
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-primary" />
+                    Cuenta Corporativa Default (Asignada por la Empresa)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("company")}
+                    className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
                   >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="h-3.5 w-3.5 rounded-full shrink-0"
-                        style={{ backgroundColor: acc.color }}
-                      />
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-bold text-xs text-foreground">{acc.displayName}</h4>
-                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground">
-                            {acc.provider}
-                          </span>
-                          <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
-                            🏢 Default Empresa
-                          </span>
-                          <span className="text-[10px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                            <Sparkles className="h-2.5 w-2.5" />
-                            IA + Antispam & ClamAV
-                          </span>
+                    Editar empresa ({compName || userProfile?.tenantName || "Acizer"}) →
+                  </button>
+                </div>
+                {corporateAccounts.map((acc) => {
+                  const resolvedDisplayName =
+                    acc.displayName === "Acme Corp" || acc.displayName.includes("Acme Corp")
+                      ? compName || "Acizer"
+                      : acc.displayName;
+                  return (
+                    <div
+                      key={acc.id}
+                      className="p-4 rounded-xl border-2 border-primary/30 bg-primary/5 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="h-3.5 w-3.5 rounded-full shrink-0"
+                          style={{ backgroundColor: acc.color }}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-bold text-xs text-foreground">
+                              {resolvedDisplayName}
+                            </h4>
+                            <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground">
+                              {acc.provider}
+                            </span>
+                            <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
+                              🏢 Default Empresa
+                            </span>
+                            <span className="text-[10px] bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                              <Sparkles className="h-2.5 w-2.5" />
+                              IA + Antispam & ClamAV
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground font-mono mt-0.5">{acc.email}</p>
                         </div>
-                        <p className="text-xs text-muted-foreground font-mono mt-0.5">{acc.email}</p>
                       </div>
-                    </div>
 
-                    <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1 shrink-0">
-                      <Lock className="h-3 w-3" />
-                      Fija del Tenant
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-[10px] text-muted-foreground font-medium flex items-center gap-1 shrink-0">
+                        <Lock className="h-3 w-3" />
+                        Fija del Tenant
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* 2. Cuentas Propias del Usuario */}
