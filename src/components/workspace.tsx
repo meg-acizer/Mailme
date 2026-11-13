@@ -20,6 +20,13 @@ import {
 } from "./account-manager-modal";
 import { WorvantaLogo } from "./ui/worvanta-logo";
 import {
+  evaluateClosedRulesOnEmail,
+  type ClosedEmailRule,
+  type RuleConditionField,
+  type RuleConditionOperator,
+  type RuleActionType,
+} from "@/lib/mail/rules-engine";
+import {
   Inbox,
   Calendar,
   CheckSquare,
@@ -101,6 +108,8 @@ interface EmailItem {
   }>;
   linkedTaskTitle?: string;
   calendarAdded?: boolean;
+  snoozedUntil?: string;
+  followUpReminder?: string;
 }
 
 const mockEmails: EmailItem[] = [
@@ -379,6 +388,49 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [taskDraftAssignee, setTaskDraftAssignee] = useState("meg-acizer");
   const [taskDraftDue, setTaskDraftDue] = useState("Mañana 18:00");
   const [shareChatMenuOpen, setShareChatMenuOpen] = useState(false);
+
+  // Block 2 States (Snooze, Follow-Up Reminder, Closed-List Rules Modal)
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [followUpMenuOpen, setFollowUpMenuOpen] = useState(false);
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [emailRules, setEmailRules] = useState<ClosedEmailRule[]>([
+    {
+      id: "rule-1",
+      name: "Etiquetar Facturas y Presupuestos",
+      conditionField: "subject",
+      conditionOperator: "contains",
+      conditionValue: "presupuesto",
+      actionType: "add_tag",
+      actionValue: "#Finanzas",
+      isActive: true,
+    },
+    {
+      id: "rule-2",
+      name: "Asignar bandeja ventas@ a Carlos Mendoza",
+      conditionField: "to",
+      conditionOperator: "contains",
+      conditionValue: "ventas@",
+      actionType: "assign_to_user",
+      actionValue: "Carlos Mendoza",
+      isActive: true,
+    },
+    {
+      id: "rule-3",
+      name: "Prioridad Alta a clientes TechCorp",
+      conditionField: "from",
+      conditionOperator: "contains",
+      conditionValue: "techcorp.io",
+      actionType: "mark_priority",
+      actionValue: "high",
+      isActive: true,
+    },
+  ]);
+  const [newRuleName, setNewRuleName] = useState("");
+  const [newRuleField, setNewRuleField] = useState<RuleConditionField>("subject");
+  const [newRuleOperator, setNewRuleOperator] = useState<RuleConditionOperator>("contains");
+  const [newRuleValue, setNewRuleValue] = useState("");
+  const [newRuleAction, setNewRuleAction] = useState<RuleActionType>("add_tag");
+  const [newRuleActionValue, setNewRuleActionValue] = useState("#Urgente");
 
   // User Connected Calendars State (Corporate Default + Personal Calendars)
   const [calendarsList, setCalendarsList] = useState<ConnectedCalendar[]>([
@@ -692,6 +744,69 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const handleShareEmailToChannel = (channelName: string) => {
     setShareChatMenuOpen(false);
     setActionNotice(`💬 Correo compartido en ${channelName} con tarjeta interactiva`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  // Block 2: Snooze, Follow-Up & Closed-List Rules handlers
+  const handleSnoozeEmail = (emailId: string, untilLabel: string) => {
+    setSnoozeMenuOpen(false);
+    setEmailsList((prev) =>
+      prev.map((item) => (item.id === emailId ? { ...item, snoozedUntil: untilLabel } : item))
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, snoozedUntil: untilLabel }));
+    }
+    setActionNotice(`💤 Correo pospuesto hasta: ${untilLabel}`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleSetFollowUpReminder = (emailId: string, reminderLabel: string) => {
+    setFollowUpMenuOpen(false);
+    setEmailsList((prev) =>
+      prev.map((item) =>
+        item.id === emailId ? { ...item, followUpReminder: reminderLabel } : item
+      )
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, followUpReminder: reminderLabel }));
+    }
+    setActionNotice(`🔔 Seguimiento activado: ${reminderLabel}`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleCreateEmailRule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRuleName.trim() || !newRuleValue.trim() || !newRuleActionValue.trim()) return;
+    const created: ClosedEmailRule = {
+      id: `rule-${Date.now()}`,
+      name: newRuleName.trim(),
+      conditionField: newRuleField,
+      conditionOperator: newRuleOperator,
+      conditionValue: newRuleValue.trim(),
+      actionType: newRuleAction,
+      actionValue: newRuleActionValue.trim(),
+      isActive: true,
+    };
+    setEmailRules((prev) => [...prev, created]);
+    setNewRuleName("");
+    setNewRuleValue("");
+    setActionNotice(`⚡ Regla "${created.name}" creada y activada`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleRunRulesNow = () => {
+    let totalMatched = 0;
+    const nextList = emailsList.map((item) => {
+      const res = evaluateClosedRulesOnEmail(item, emailRules);
+      if (res.appliedRuleNames.length > 0) totalMatched += 1;
+      return res.updatedEmail;
+    });
+    setEmailsList(nextList);
+    const updatedSelected = nextList.find((item) => item.id === selectedEmail.id);
+    if (updatedSelected) setSelectedEmail(updatedSelected);
+    setActionNotice(
+      `⚡ Reglas ejecutadas: ${totalMatched} correo(s) actualizados automáticamente`
+    );
     setTimeout(() => setActionNotice(null), 3500);
   };
 
@@ -1157,6 +1272,20 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                             </div>
                             <span className="text-[10px] font-mono text-muted-foreground">
                               {getFolderCount("trash", "all")}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setRulesModalOpen(true)}
+                            className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer font-semibold mt-1 border border-dashed border-primary/30"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                              <span>Reglas y Filtros</span>
+                            </div>
+                            <span className="text-[10px] font-mono bg-primary/15 px-1.5 rounded">
+                              {emailRules.filter((r) => r.isActive).length}
                             </span>
                           </button>
                         </div>
@@ -2161,16 +2290,102 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         </div>
                       </div>
 
-                      {selectedEmail.linkedTaskTitle && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveModule("tasks")}
-                          className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 hover:underline cursor-pointer"
-                        >
-                          <CheckSquare className="h-3 w-3" />
-                          <span>Tarea: {selectedEmail.linkedTaskTitle}</span>
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Posponer (Snooze) */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setSnoozeMenuOpen((prev) => !prev)}
+                            className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-lg border flex items-center gap-1 cursor-pointer transition-colors ${
+                              selectedEmail.snoozedUntil
+                                ? "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                                : "bg-card text-muted-foreground hover:text-foreground border-border"
+                            }`}
+                            title="Posponer correo para más adelante (Snooze)"
+                          >
+                            <Clock className="h-3 w-3" />
+                            <span>
+                              {selectedEmail.snoozedUntil
+                                ? `Pospuesto: ${selectedEmail.snoozedUntil}`
+                                : "Posponer"}
+                            </span>
+                          </button>
+                          {snoozeMenuOpen && (
+                            <div className="absolute right-0 top-7 z-50 w-52 bg-card border border-border rounded-xl shadow-2xl p-1.5 text-xs space-y-1">
+                              <div className="px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground">
+                                💤 Posponer hasta...
+                              </div>
+                              {[
+                                "Hoy 16:00 hs",
+                                "Mañana 09:00 AM",
+                                "Próximo Lunes 09:00 AM",
+                              ].map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => handleSnoozeEmail(selectedEmail.id, opt)}
+                                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-muted text-foreground cursor-pointer"
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Recordatorio de Seguimiento */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setFollowUpMenuOpen((prev) => !prev)}
+                            className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-lg border flex items-center gap-1 cursor-pointer transition-colors ${
+                              selectedEmail.followUpReminder
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                : "bg-card text-muted-foreground hover:text-foreground border-border"
+                            }`}
+                            title="Recordatorio automático si nadie responde"
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                            <span>
+                              {selectedEmail.followUpReminder
+                                ? `Seguimiento: ${selectedEmail.followUpReminder}`
+                                : "Seguimiento"}
+                            </span>
+                          </button>
+                          {followUpMenuOpen && (
+                            <div className="absolute right-0 top-7 z-50 w-60 bg-card border border-border rounded-xl shadow-2xl p-1.5 text-xs space-y-1">
+                              <div className="px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground">
+                                🔔 Avisarme si nadie responde en...
+                              </div>
+                              {[
+                                "2 días sin respuesta",
+                                "3 días sin respuesta",
+                                "7 días sin respuesta",
+                              ].map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => handleSetFollowUpReminder(selectedEmail.id, opt)}
+                                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-muted text-foreground cursor-pointer"
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {selectedEmail.linkedTaskTitle && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveModule("tasks")}
+                            className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 hover:underline cursor-pointer"
+                          >
+                            <CheckSquare className="h-3 w-3" />
+                            <span>Tarea: {selectedEmail.linkedTaskTitle}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Modal inline rápido: Convertir Correo en Tarea */}
@@ -2599,6 +2814,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         initialSubject={composerData.subject}
         initialBody={composerData.body}
         initialAttachments={composerData.attachments}
+        userSignature={userProfile.personalSignature}
         accounts={accountsList}
         onSaveContact={(email) => handleSaveContact(email)}
         onSendSuccess={(msg) => {
@@ -2606,6 +2822,158 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           setTimeout(() => setActionNotice(null), 4000);
         }}
       />
+
+      {/* Modal de Reglas y Filtros Automáticos de Correo (Lista Cerrada Segura) */}
+      {rulesModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-xs">
+            <div className="px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-sm text-foreground flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span>Reglas y Filtros Automáticos de Correo (Lista Cerrada)</span>
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Evalúa condiciones declarativas y aplica etiquetado, asignación de equipo o movimiento de carpeta sin ejecución arbitraria.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRulesModalOpen(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              <form
+                onSubmit={handleCreateEmailRule}
+                className="p-4 rounded-xl bg-muted/30 border border-border space-y-3"
+              >
+                <div className="font-bold text-foreground">Crear Nueva Regla Automática</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <input
+                    type="text"
+                    value={newRuleName}
+                    onChange={(e) => setNewRuleName(e.target.value)}
+                    placeholder="Nombre (ej: Facturas a Finanzas)"
+                    className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-foreground"
+                    required
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={newRuleField}
+                      onChange={(e) => setNewRuleField(e.target.value as RuleConditionField)}
+                      className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground"
+                    >
+                      <option value="subject">Si Asunto</option>
+                      <option value="from">Si Remitente</option>
+                      <option value="to">Si Destinatario (Para)</option>
+                    </select>
+                    <select
+                      value={newRuleOperator}
+                      onChange={(e) => setNewRuleOperator(e.target.value as RuleConditionOperator)}
+                      className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground"
+                    >
+                      <option value="contains">contiene</option>
+                      <option value="equals">es igual a</option>
+                      <option value="ends_with">termina en</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    value={newRuleValue}
+                    onChange={(e) => setNewRuleValue(e.target.value)}
+                    placeholder="Valor (ej: factura, ventas@)"
+                    className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-foreground"
+                    required
+                  />
+                  <select
+                    value={newRuleAction}
+                    onChange={(e) => setNewRuleAction(e.target.value as RuleActionType)}
+                    className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-foreground"
+                  >
+                    <option value="add_tag">→ Aplicar Etiqueta</option>
+                    <option value="assign_to_user">→ Asignar a Miembro</option>
+                    <option value="mark_priority">→ Marcar Prioridad</option>
+                    <option value="move_to_folder">→ Mover a Carpeta</option>
+                    <option value="notify_channel">→ Avisar en Canal</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={newRuleActionValue}
+                    onChange={(e) => setNewRuleActionValue(e.target.value)}
+                    placeholder="Ej: #Finanzas / Laura Benítez / high"
+                    className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-foreground"
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer"
+                  >
+                    + Guardar Regla
+                  </button>
+                </div>
+              </form>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold uppercase text-[10px] tracking-wider text-muted-foreground">
+                    Reglas Activas ({emailRules.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRunRulesNow}
+                    className="px-3 py-1 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold text-xs hover:bg-emerald-500/25 cursor-pointer"
+                  >
+                    ⚡ Ejecutar reglas sobre mi bandeja ahora
+                  </button>
+                </div>
+
+                {emailRules.map((rule) => (
+                  <div
+                    key={rule.id}
+                    className="p-3 rounded-xl border border-border bg-card flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="font-bold text-foreground">{rule.name}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                        SI [{rule.conditionField}] {rule.conditionOperator} &quot;{rule.conditionValue}&quot; ⇒ {rule.actionType}({rule.actionValue})
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={rule.isActive}
+                        onChange={() =>
+                          setEmailRules((prev) =>
+                            prev.map((r) => (r.id === rule.id ? { ...r, isActive: !r.isActive } : r))
+                          )
+                        }
+                        className="rounded border-border text-primary cursor-pointer"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEmailRules((prev) => prev.filter((r) => r.id !== rule.id))}
+                        className="p-1 text-muted-foreground hover:text-destructive cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Account Manager & User Profile Modal */}
       <AccountManagerModal
