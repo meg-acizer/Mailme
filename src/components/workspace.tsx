@@ -393,6 +393,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
   const [followUpMenuOpen, setFollowUpMenuOpen] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
   const [emailRules, setEmailRules] = useState<ClosedEmailRule[]>([
     {
       id: "rule-1",
@@ -1652,6 +1654,19 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           )}
 
           <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setOnboardingStep(1);
+                setOnboardingOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-xs bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer"
+              title="Asistente guiado paso a paso para conectar tu primera cuenta"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span className="hidden xl:inline">Onboarding Guiado</span>
+            </button>
+
             {onOpenAdmin && (
               <button
                 onClick={onOpenAdmin}
@@ -2969,6 +2984,147 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding Guiado (Wizard de 3 Pasos para Conectar la Primera Cuenta) */}
+      {onboardingOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col text-xs">
+            <div className="px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono uppercase text-primary font-bold">
+                  Paso {onboardingStep} de 3 • Configuración Guiada
+                </span>
+                <h2 className="font-bold text-sm text-foreground mt-0.5">
+                  Bienvenido a Worvanta — Conecta tu espacio en 2 minutos
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOnboardingOpen(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {onboardingStep === 1 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-foreground">
+                    1. Conecta tu primera cuenta de correo y calendario
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Elige tu proveedor corporativo. Worvanta utiliza el método recomendado y seguro para cada plataforma:
+                  </p>
+                  <div className="space-y-2">
+                    <div className="p-3 rounded-xl border border-orange-500/30 bg-orange-500/5">
+                      <div className="font-bold text-foreground">🏢 Microsoft 365 / Exchange Online</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        Conexión mediante <strong>OAuth 2.0 (Entra ID)</strong> para Correo y Calendario (sin contraseñas básicas).
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/5">
+                      <div className="font-bold text-foreground">✉️ Gmail / Google Workspace</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        Correo vía <strong>IMAP/SMTP + Contraseña de Aplicación (requiere 2FA)</strong> y <strong>Google Calendar por OAuth 2.0 directo</strong>.
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+                      <div className="font-bold text-foreground">🖥️ Servidor Propio / Hosting (cPanel, Zimbra, Zoho)</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        Conexión IMAP/SMTP estándar con protección anti-SSRF y cifrado versionado AES-256-GCM (<span className="font-mono">v1</span>).
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnboardingOpen(false);
+                      setIsAccountsModalOpen(true);
+                    }}
+                    className="w-full py-2 rounded-xl bg-primary/15 text-primary font-bold hover:bg-primary/25 transition-colors cursor-pointer"
+                  >
+                    Abrir Conector de Cuentas & Calendarios →
+                  </button>
+                </div>
+              )}
+
+              {onboardingStep === 2 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-foreground">
+                    2. Personaliza tu Firma y el Tono del Borrador IA
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Define tu firma personal que se insertará automáticamente al redactar o usar plantillas rápidas:
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={userProfile.personalSignature || ""}
+                    onChange={(e) =>
+                      setUserProfile((prev) => ({ ...prev, personalSignature: e.target.value }))
+                    }
+                    className="w-full bg-muted/40 border border-border rounded-xl p-3 text-xs font-mono text-foreground"
+                  />
+                  <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-[11px] text-muted-foreground">
+                    ✨ En el compositor podrás elegir entre tono <strong>Ejecutivo, Formal, Directo o Empático</strong>, además de programar envíos y deshacer envíos durante 8 segundos.
+                  </div>
+                </div>
+              )}
+
+              {onboardingStep === 3 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-foreground">
+                    3. Bandeja Compartida, Reglas Automáticas y Enlace de Reservas
+                  </h3>
+                  <ul className="space-y-2 text-muted-foreground list-disc list-inside leading-relaxed">
+                    <li>
+                      <strong>Bandeja Compartida:</strong> asigna correos de <span className="font-mono">soporte@</span> o <span className="font-mono">ventas@</span> a miembros del equipo con estados (Abierto, En curso, Resuelto) y notas internas privadas.
+                    </li>
+                    <li>
+                      <strong>Búsqueda Semántica (<span className="font-mono">⌘K</span>):</strong> pregunta en lenguaje natural sobre correos, contactos, tareas o mensajes de chat.
+                    </li>
+                    <li>
+                      <strong>Tu enlace público estilo Calendly:</strong> ya está activo en <a href="/book/reunion-30min" target="_blank" rel="noreferrer" className="text-primary underline font-mono">/book/reunion-30min</a>.
+                    </li>
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-3 border-t border-border">
+                <button
+                  type="button"
+                  disabled={onboardingStep === 1}
+                  onClick={() => setOnboardingStep((s) => (s === 3 ? 2 : 1))}
+                  className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40 cursor-pointer"
+                >
+                  Anterior
+                </button>
+                {onboardingStep < 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setOnboardingStep((s) => (s === 1 ? 2 : 3))}
+                    className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold cursor-pointer"
+                  >
+                    Siguiente Paso →
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnboardingOpen(false);
+                      setActionNotice("🎉 ¡Onboarding completado! Tu espacio está listo.");
+                      setTimeout(() => setActionNotice(null), 3500);
+                    }}
+                    className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold cursor-pointer"
+                  >
+                    ¡Listo, empezar a usar Worvanta!
+                  </button>
+                )}
               </div>
             </div>
           </div>

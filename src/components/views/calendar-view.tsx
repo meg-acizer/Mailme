@@ -614,18 +614,28 @@ export function CalendarView({
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-lg bg-muted/50 border border-border flex items-center justify-between">
+              <div className="p-3.5 rounded-lg bg-muted/50 border border-border flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center space-x-2 text-sm font-mono text-foreground truncate">
                   <LinkIcon className="h-4 w-4 text-primary shrink-0" />
-                  <span className="truncate">https://worvanta.app/book/mi-organizacion/mgonzalez</span>
+                  <span className="truncate">/book/reunion-30min</span>
                 </div>
-                <button
-                  onClick={handleCopyBookingLink}
-                  className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center space-x-1.5 shrink-0 cursor-pointer"
-                >
-                  {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  <span>{copiedLink ? "Copiado" : "Copiar Enlace"}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <a
+                    href="/book/reunion-30min"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors cursor-pointer"
+                  >
+                    Abrir Página Pública ↗
+                  </a>
+                  <button
+                    onClick={handleCopyBookingLink}
+                    className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                  >
+                    {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedLink ? "Copiado" : "Copiar Enlace"}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">

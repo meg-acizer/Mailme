@@ -243,6 +243,38 @@ export function CommandPalette({
   const { setTheme } = useTheme();
   const [query, setQuery] = useState("");
   const [lastContextContact, setLastContextContact] = useState<SmartContact | null>(SMART_CONTACTS[0]);
+  const [semanticEngineStatus, setSemanticEngineStatus] = useState<"idle" | "searching" | "pgvector" | "hybrid_fallback">("idle");
+  const [pgvectorMatches, setPgvectorMatches] = useState<
+    Array<{ source_type: string; item_id: string; title: string; snippet: string; similarity: number }>
+  >([]);
+
+  // Query Supabase pgvector semantic search endpoint when typing natural language questions
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!isOpen || trimmed.length < 4) {
+      setSemanticEngineStatus("idle");
+      setPgvectorMatches([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSemanticEngineStatus("searching");
+      try {
+        const res = await fetch("/api/ai/semantic-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: trimmed }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setSemanticEngineStatus(data.engine === "pgvector" ? "pgvector" : "hybrid_fallback");
+          setPgvectorMatches(Array.isArray(data.matches) ? data.matches : []);
+        }
+      } catch {
+        setSemanticEngineStatus("hybrid_fallback");
+      }
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [query, isOpen]);
 
   // Reset or keep input when opening
   useEffect(() => {
@@ -512,9 +544,16 @@ export function CommandPalette({
                       <Bot className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-xs text-primary uppercase tracking-wider">
-                          Respuesta Inteligente en Lenguaje Natural
+                          Respuesta Inteligente & Búsqueda Semántica (pgvector)
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                          {semanticEngineStatus === "pgvector"
+                            ? "⚡ pgvector (768-dim) activo"
+                            : semanticEngineStatus === "searching"
+                            ? "Consultando vectores..."
+                            : "🧠 Motor Semántico Híbrido (Correos + Chat)"}
                         </span>
                         {lastContextContact && (
                           <span className="text-[10px] px-2 py-0.2 rounded-full bg-muted text-muted-foreground">

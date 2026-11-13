@@ -45,7 +45,7 @@ interface TenantUser {
   id: string;
   name: string;
   email: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member" | "guest_readonly";
   status: "active" | "blocked";
   tokensUsed: number;
   costUsd: number;
@@ -170,7 +170,9 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserRole, setNewUserRole] = useState<"admin" | "member">("member");
+  const [newUserRole, setNewUserRole] = useState<"admin" | "member" | "guest_readonly">("member");
+  const [retentionDays, setRetentionDays] = useState<number>(365);
+  const [billingGateway, setBillingGateway] = useState<"mercadopago" | "stripe">("mercadopago");
 
   // LLM Configuration State (Primary & Fallback)
   type SupportedProvider = "gemini" | "openai" | "claude" | "openrouter";
@@ -2462,6 +2464,109 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                   ))}
                 </div>
               </div>
+
+              {/* 4. FACTURACIÓN (MERCADO PAGO ARGENTINA & STRIPE) + EXPORTACIÓN Y RETENCIÓN DE DATOS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-primary" />
+                      <span>Facturación & Suscripción del Tenant</span>
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      Plan {tenantPlan.toUpperCase()} Activo
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Gestiona el medio de cobro de la suscripción corporativa en pesos argentinos (Mercado Pago) o dólares (Stripe).
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBillingGateway("mercadopago");
+                        triggerNotice("Pasarela principal seleccionada: Mercado Pago (Argentina / LatAm)");
+                      }}
+                      className={`flex-1 py-2 px-3 rounded-xl border font-semibold cursor-pointer ${
+                        billingGateway === "mercadopago"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-muted/30 text-muted-foreground"
+                      }`}
+                    >
+                      🇦🇷 Mercado Pago (ARS / Suscripción)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBillingGateway("stripe");
+                        triggerNotice("Pasarela principal seleccionada: Stripe (USD Internacional)");
+                      }}
+                      className={`flex-1 py-2 px-3 rounded-xl border font-semibold cursor-pointer ${
+                        billingGateway === "stripe"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-muted/30 text-muted-foreground"
+                      }`}
+                    >
+                      🌐 Stripe Billing (USD)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <Download className="h-4 w-4 text-primary" />
+                      <span>Retención & Exportación de Datos (Compliance)</span>
+                    </h3>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">Política de retención de correos y logs:</span>
+                    <select
+                      value={retentionDays}
+                      onChange={(e) => {
+                        setRetentionDays(Number(e.target.value));
+                        triggerNotice(`Retención actualizada a ${e.target.value} días`);
+                      }}
+                      className="bg-muted/40 border border-border rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    >
+                      <option value={90}>90 días</option>
+                      <option value={180}>180 días</option>
+                      <option value={365}>365 días (1 año)</option>
+                      <option value={1825}>5 años (Legal)</option>
+                    </select>
+                  </div>
+                  <div className="pt-1 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dump = {
+                          exportedAt: new Date().toISOString(),
+                          tenantName,
+                          plan: tenantPlan,
+                          retentionDays,
+                          usersCount: users.length,
+                          apiKeysCount: apiKeysList.length,
+                          webhooksCount: webhooksList.length,
+                        };
+                        const blob = new Blob([JSON.stringify(dump, null, 2)], {
+                          type: "application/json",
+                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `worvanta_tenant_export_${Date.now()}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        triggerNotice("✓ Exportación JSON del Tenant descargada");
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg border border-border bg-muted/40 hover:bg-muted font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5 text-primary" />
+                      <span>Exportar Datos del Tenant (JSON)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -2507,11 +2612,16 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Rol en el Tenant</label>
                 <select
                   value={newUserRole}
-                  onChange={(e) => setNewUserRole(e.target.value as "admin" | "member")}
+                  onChange={(e) =>
+                    setNewUserRole(e.target.value as "admin" | "member" | "guest_readonly")
+                  }
                   className="w-full bg-muted/50 border border-border px-3 py-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="member">Miembro (Acceso estándar + Perfil Personal)</option>
                   <option value="admin">Administrador del Tenant</option>
+                  <option value="guest_readonly">
+                    Invitado de Solo Lectura (Auditor / Externo sin permisos de escritura)
+                  </option>
                 </select>
               </div>
 
