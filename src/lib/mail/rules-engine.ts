@@ -32,7 +32,7 @@ export interface EvaluableEmail {
   hasAttachment?: boolean;
   aiCategory?: string;
   tags?: string[];
-  folder?: "inbox" | "sent" | "spam" | "trash";
+  folder?: "inbox" | "archived" | "sent" | "spam" | "trash";
   assignedTo?: string;
   priority?: "high" | "normal" | "low";
 }

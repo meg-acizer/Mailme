@@ -78,12 +78,15 @@ import {
 
 interface EmailItem {
   id: string;
+  accountId?: string;
   senderName: string;
   senderEmail: string;
-  account: { name: string; color: string };
-  folder?: "inbox" | "sent" | "spam" | "trash";
+  account: { id?: string; name: string; color: string };
+  folder?: "inbox" | "archived" | "sent" | "spam" | "trash";
   subject: string;
   preview: string;
+  bodyText?: string;
+  bodyHtml?: string;
   aiSummary: string;
   time: string;
   isUnread: boolean;
@@ -321,7 +324,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   // Selected folder & account in Column 1
   const [selectedFolder, setSelectedFolder] = useState<{
     accountId: string | "all";
-    folderType: "inbox" | "sent" | "spam" | "trash";
+    folderType: "inbox" | "archived" | "sent" | "spam" | "trash";
   }>({ accountId: "all", folderType: "inbox" });
 
   // Columns 2, 3, 4 dimensions and visibility
@@ -528,7 +531,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
   // Helper para conteo dinámico de correos por carpeta y cuenta
   const getFolderCount = (
-    folderType: "inbox" | "sent" | "spam" | "trash",
+    folderType: "inbox" | "archived" | "sent" | "spam" | "trash",
     accountId: string | "all" = "all"
   ) => {
     return emailsList.filter((e) => {
@@ -538,6 +541,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         const acc = accountsList.find((a) => a.id === accountId);
         if (acc) {
           const match =
+            e.accountId === acc.id ||
+            e.account.id === acc.id ||
             e.account.name.toLowerCase().includes(acc.provider.toLowerCase()) ||
             e.account.name.toLowerCase().includes(acc.displayName.toLowerCase()) ||
             e.senderEmail.toLowerCase().includes(acc.email.toLowerCase()) ||
@@ -545,7 +550,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
           if (!match) return false;
         }
       }
-      return folderType === "inbox" ? e.isUnread : true;
+      return true;
     }).length;
   };
 
@@ -605,6 +610,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       const acc = accountsList.find((a) => a.id === selectedFolder.accountId);
       if (acc) {
         const matchesAcc =
+          email.accountId === acc.id ||
+          email.account.id === acc.id ||
           email.account.name.toLowerCase().includes(acc.provider.toLowerCase()) ||
           email.account.name.toLowerCase().includes(acc.displayName.toLowerCase()) ||
           email.senderEmail.toLowerCase().includes(acc.email.toLowerCase()) ||
@@ -613,7 +620,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       }
     }
 
-    if (selectedFolder.folderType === "inbox") {
+    if (selectedFolder.folderType === "inbox" && email.triage) {
       return email.triage === triageFilter;
     }
 
@@ -665,6 +672,357 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const handleSaveContact = (email: string, name?: string) => {
     setContactSavedNotice(`✓ Contacto "${name || email}" guardado en la Libreta Corporativa.`);
     setTimeout(() => setContactSavedNotice(null), 3500);
+  };
+
+  // Multi-select, Archive, Delete, Restore, and Real IMAP Sync State & Handlers
+  const isDemoMode = user?.id === "demo-user-1" || (user as { isDemo?: boolean })?.isDemo === true;
+  const [selectedEmailIds, setSelectedEmailIds] = useState<string[]>([]);
+  const [isSyncingLive, setIsSyncingLive] = useState(false);
+
+  // Onboarding Primary Account State (pre-filled with user's email & domain)
+  const initialUserDomain = (user?.email || "").split("@")[1] || "acizer.com.ar";
+  const [onboardingProvider, setOnboardingProvider] = useState<"imap" | "gmail" | "microsoft">(
+    user?.corporateProvider === "google"
+      ? "gmail"
+      : user?.corporateProvider === "microsoft"
+      ? "microsoft"
+      : "imap"
+  );
+  const [onboardingImapEmail, setOnboardingImapEmail] = useState(user?.email || "");
+  const [onboardingImapPassword, setOnboardingImapPassword] = useState("");
+  const [onboardingImapHost, setOnboardingImapHost] = useState(
+    user?.corporateProvider === "google"
+      ? "imap.gmail.com"
+      : user?.corporateProvider === "microsoft"
+      ? "outlook.office365.com"
+      : `mail.${initialUserDomain}`
+  );
+  const [onboardingImapPort, setOnboardingImapPort] = useState("993");
+  const [onboardingSmtpHost, setOnboardingSmtpHost] = useState(
+    user?.corporateProvider === "google"
+      ? "smtp.gmail.com"
+      : user?.corporateProvider === "microsoft"
+      ? "smtp.office365.com"
+      : `mail.${initialUserDomain}`
+  );
+  const [onboardingSmtpPort, setOnboardingSmtpPort] = useState("465");
+  const [onboardingConnecting, setOnboardingConnecting] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+
+  // Clear mock data and load real user accounts / emails for non-demo users
+  useEffect(() => {
+    if (isDemoMode) return;
+    const storageKeyAcc = `worvanta_real_accounts_${user?.email || user?.id || "default"}`;
+    const storageKeyMail = `worvanta_real_emails_${user?.email || user?.id || "default"}`;
+    try {
+      const savedAccountsRaw = localStorage.getItem(storageKeyAcc);
+      const savedEmailsRaw = localStorage.getItem(storageKeyMail);
+      const parsedAccounts: ConnectedAccount[] = savedAccountsRaw ? JSON.parse(savedAccountsRaw) : [];
+      const parsedEmails: EmailItem[] = savedEmailsRaw ? JSON.parse(savedEmailsRaw) : [];
+
+      setAccountsList(parsedAccounts);
+      setEmailsList(parsedEmails);
+
+      if (parsedEmails.length > 0) {
+        setSelectedEmail(parsedEmails[0]);
+      } else {
+        setSelectedEmail({
+          id: "empty-placeholder",
+          folder: "inbox",
+          senderName: "Bandeja de Correo Real",
+          senderEmail: user?.email || "",
+          subject:
+            parsedAccounts.length === 0
+              ? "Conecta tu cuenta de correo principal para comenzar"
+              : "Tu bandeja está sincronizada y lista",
+          preview:
+            parsedAccounts.length === 0
+              ? "Configura tu servidor IMAP/SMTP para descargar tus correos reales sin datos de prueba."
+              : "Haz clic en 'Sincronizar' para buscar nuevos correos en tu servidor IMAP.",
+          time: "Ahora",
+          isUnread: false,
+          triage: "important",
+          account: {
+            id: parsedAccounts[0]?.id || "none",
+            name: parsedAccounts[0]?.displayName || user?.tenantName || "Principal",
+            color: parsedAccounts[0]?.color || "#3b82f6",
+          },
+          aiSummary: "Sin mensajes seleccionados.",
+          priority: "normal",
+        });
+      }
+
+      if (parsedAccounts.length === 0) {
+        setActiveModule("mail");
+        setOnboardingStep(1);
+        setOnboardingOpen(true);
+      }
+    } catch {
+      setAccountsList([]);
+      setEmailsList([]);
+      setOnboardingOpen(true);
+    }
+  }, [isDemoMode, user?.email, user?.id, user?.tenantName]);
+
+  // Persist real accounts and emails to localStorage when modified for non-demo users
+  useEffect(() => {
+    if (!mounted || isDemoMode) return;
+    const storageKeyAcc = `worvanta_real_accounts_${user?.email || user?.id || "default"}`;
+    const storageKeyMail = `worvanta_real_emails_${user?.email || user?.id || "default"}`;
+    try {
+      localStorage.setItem(storageKeyAcc, JSON.stringify(accountsList));
+      localStorage.setItem(storageKeyMail, JSON.stringify(emailsList));
+    } catch {
+      // ignore quota errors
+    }
+  }, [mounted, isDemoMode, accountsList, emailsList, user?.email, user?.id]);
+
+  // Clear selection when switching folder or account
+  useEffect(() => {
+    setSelectedEmailIds([]);
+  }, [selectedFolder.accountId, selectedFolder.folderType]);
+
+  const handleToggleSelectEmail = (emailId: string) => {
+    setSelectedEmailIds((prev) =>
+      prev.includes(emailId) ? prev.filter((id) => id !== emailId) : [...prev, emailId]
+    );
+  };
+
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = filteredEmails.map((e) => e.id);
+    if (visibleIds.length === 0) return;
+    const allSelected = visibleIds.every((id) => selectedEmailIds.includes(id));
+    if (allSelected) {
+      setSelectedEmailIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedEmailIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleArchiveEmails = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setEmailsList((prev) =>
+      prev.map((item) => (ids.includes(item.id) ? { ...item, folder: "archived" as const } : item))
+    );
+    if (ids.includes(selectedEmail.id)) {
+      const remaining = filteredEmails.filter((e) => !ids.includes(e.id));
+      if (remaining.length > 0) setSelectedEmail(remaining[0]);
+      else setSelectedEmail((prev) => ({ ...prev, folder: "archived" as const }));
+    }
+    setSelectedEmailIds((prev) => prev.filter((id) => !ids.includes(id)));
+    setActionNotice(
+      ids.length === 1
+        ? "📦 Correo movido a Archivados"
+        : `📦 ${ids.length} correos movidos a Archivados`
+    );
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleDeleteEmails = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const isAlreadyInTrash = selectedFolder.folderType === "trash";
+    if (isAlreadyInTrash) {
+      setEmailsList((prev) => prev.filter((item) => !ids.includes(item.id)));
+      setActionNotice(
+        ids.length === 1
+          ? "🗑️ Correo eliminado definitivamente"
+          : `🗑️ ${ids.length} correos eliminados definitivamente`
+      );
+    } else {
+      setEmailsList((prev) =>
+        prev.map((item) => (ids.includes(item.id) ? { ...item, folder: "trash" as const } : item))
+      );
+      setActionNotice(
+        ids.length === 1
+          ? "🗑️ Correo movido a la Papelera"
+          : `🗑️ ${ids.length} correos movidos a la Papelera`
+      );
+    }
+    if (ids.includes(selectedEmail.id)) {
+      const remaining = filteredEmails.filter((e) => !ids.includes(e.id));
+      if (remaining.length > 0) setSelectedEmail(remaining[0]);
+      else if (!isAlreadyInTrash) setSelectedEmail((prev) => ({ ...prev, folder: "trash" as const }));
+    }
+    setSelectedEmailIds((prev) => prev.filter((id) => !ids.includes(id)));
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleRestoreEmails = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setEmailsList((prev) =>
+      prev.map((item) => (ids.includes(item.id) ? { ...item, folder: "inbox" as const } : item))
+    );
+    if (ids.includes(selectedEmail.id)) {
+      setSelectedEmail((prev) => ({ ...prev, folder: "inbox" as const }));
+    }
+    setSelectedEmailIds((prev) => prev.filter((id) => !ids.includes(id)));
+    setActionNotice(
+      ids.length === 1
+        ? "📥 Correo restaurado a Bandeja de Entrada"
+        : `📥 ${ids.length} correos restaurados a Bandeja de Entrada`
+    );
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleConnectPrimaryImapAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOnboardingError(null);
+    setOnboardingConnecting(true);
+    try {
+      const res = await fetch("/api/mail/live-imap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "connect_and_sync",
+          accountName: user?.tenantName || onboardingImapEmail.split("@")[0],
+          accountColor: "#3b82f6",
+          email: onboardingImapEmail.trim(),
+          imapHost: onboardingImapHost.trim(),
+          imapPort: Number(onboardingImapPort) || 993,
+          imapSecure: Number(onboardingImapPort) === 993,
+          smtpHost: onboardingSmtpHost.trim(),
+          smtpPort: Number(onboardingSmtpPort) || 465,
+          smtpSecure: Number(onboardingSmtpPort) === 465,
+          username: onboardingImapEmail.trim(),
+          password: onboardingImapPassword,
+          limit: 40,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setOnboardingError(data.error || "No se pudo conectar al servidor IMAP.");
+        setOnboardingConnecting(false);
+        return;
+      }
+
+      const newAcc: ConnectedAccount & {
+        imapHost?: string;
+        imapPort?: number;
+        smtpHost?: string;
+        smtpPort?: number;
+        vaultToken?: string;
+      } = {
+        id: data.account.id,
+        email: data.account.email,
+        displayName: data.account.displayName,
+        provider: "imap_smtp",
+        color: "#3b82f6",
+        isCorporateDefault: true,
+        aiEnabled: true,
+        imapHost: data.account.imapHost,
+        imapPort: data.account.imapPort,
+        smtpHost: data.account.smtpHost,
+        smtpPort: data.account.smtpPort,
+        vaultToken: data.account.vaultToken,
+      };
+
+      setAccountsList((prev) => {
+        const filtered = prev.filter((a) => a.email.toLowerCase() !== newAcc.email.toLowerCase());
+        return [newAcc, ...filtered];
+      });
+
+      const fetchedEmails: EmailItem[] = data.emails || [];
+      setEmailsList((prev) => {
+        const otherAccEmails = prev.filter((em) => em.account.id !== newAcc.id);
+        return [...fetchedEmails, ...otherAccEmails];
+      });
+
+      if (fetchedEmails.length > 0) {
+        setSelectedEmail(fetchedEmails[0]);
+      }
+
+      setOnboardingImapPassword("");
+      setOnboardingOpen(false);
+      setActiveModule("mail");
+      setSelectedFolder({ accountId: newAcc.id, folderType: "inbox" });
+      setActionNotice(
+        `✓ Cuenta ${newAcc.email} conectada (${fetchedEmails.length} correos reales sincronizados)`
+      );
+      setTimeout(() => setActionNotice(null), 5000);
+    } catch (err) {
+      setOnboardingError(
+        err instanceof Error ? err.message : "Error de red al verificar el servidor IMAP"
+      );
+    } finally {
+      setOnboardingConnecting(false);
+    }
+  };
+
+  const handleSyncLiveAccounts = async () => {
+    const imapAccounts = accountsList.filter(
+      (a) =>
+        (a as { imapHost?: string; vaultToken?: string }).imapHost &&
+        (a as { imapHost?: string; vaultToken?: string }).vaultToken
+    );
+    if (imapAccounts.length === 0) {
+      setOnboardingStep(1);
+      setOnboardingOpen(true);
+      return;
+    }
+
+    setIsSyncingLive(true);
+    setActionNotice("Sincronizando correos reales desde tu servidor IMAP...");
+    try {
+      let totalFetched = 0;
+      for (const acc of imapAccounts) {
+        const extAcc = acc as ConnectedAccount & {
+          imapHost?: string;
+          imapPort?: number;
+          smtpHost?: string;
+          smtpPort?: number;
+          vaultToken?: string;
+        };
+        const res = await fetch("/api/mail/live-imap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "sync",
+            accountId: acc.id,
+            accountName: acc.displayName,
+            accountColor: acc.color,
+            email: acc.email,
+            imapHost: extAcc.imapHost,
+            imapPort: extAcc.imapPort || 993,
+            encryptedPassword: extAcc.vaultToken,
+            limit: 40,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.emails)) {
+          const syncedEmails: EmailItem[] = data.emails;
+          totalFetched += syncedEmails.length;
+          setEmailsList((prev) => {
+            // Preserve local folder state (trash, archived, sent) for already downloaded messages
+            const existingById = new Map(prev.map((item) => [item.id, item]));
+            const mergedForAcc = syncedEmails.map((fresh) => {
+              const prevItem = existingById.get(fresh.id);
+              if (prevItem && (prevItem.folder === "trash" || prevItem.folder === "archived")) {
+                return { ...fresh, folder: prevItem.folder };
+              }
+              return fresh;
+            });
+            const localOnlyForAcc = prev.filter(
+              (item) =>
+                item.account.id === acc.id &&
+                item.folder === "sent" &&
+                !syncedEmails.some((s) => s.id === item.id)
+            );
+            const otherAccEmails = prev.filter((item) => item.account.id !== acc.id);
+            const nextList = [...mergedForAcc, ...localOnlyForAcc, ...otherAccEmails];
+            if (nextList.length > 0 && selectedEmail.id === "empty-placeholder") {
+              setSelectedEmail(nextList[0]);
+            }
+            return nextList;
+          });
+        }
+      }
+      setActionNotice(`✓ Sincronización IMAP completada (${totalFetched} mensajes al día)`);
+    } catch {
+      setActionNotice("Error al sincronizar con el servidor IMAP");
+    } finally {
+      setIsSyncingLive(false);
+      setTimeout(() => setActionNotice(null), 4000);
+    }
   };
 
   // Block 1: Shared Inbox status & assignee handlers
@@ -1260,6 +1618,26 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                           <button
                             onClick={() => {
                               setActiveModule("mail");
+                              setSelectedFolder({ accountId: "all", folderType: "archived" });
+                            }}
+                            className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
+                              selectedFolder.accountId === "all" && selectedFolder.folderType === "archived"
+                                ? "bg-accent font-semibold text-foreground"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Archive className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                              <span>Archivados</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-muted-foreground">
+                              {getFolderCount("archived", "all")}
+                            </span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setActiveModule("mail");
                               setSelectedFolder({ accountId: "all", folderType: "trash" });
                             }}
                             className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
@@ -1270,7 +1648,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                           >
                             <div className="flex items-center gap-2">
                               <Trash2 className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                              <span>Eliminados</span>
+                              <span>Papelera / Eliminados</span>
                             </div>
                             <span className="text-[10px] font-mono text-muted-foreground">
                               {getFolderCount("trash", "all")}
@@ -1308,8 +1686,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         </button>
                       </div>
 
-                      {accountsList.map((acc) => {
-                        const isOpen = openAccountFolders[acc.id] ?? false;
+                      {accountsList.map((acc, idx) => {
+                        const isOpen = openAccountFolders[acc.id] ?? (idx === 0 || accountsList.length <= 3);
                         return (
                           <div key={acc.id} className="space-y-0.5">
                             <div
@@ -1400,6 +1778,26 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                                 <button
                                   onClick={() => {
                                     setActiveModule("mail");
+                                    setSelectedFolder({ accountId: acc.id, folderType: "archived" });
+                                  }}
+                                  className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
+                                    selectedFolder.accountId === acc.id && selectedFolder.folderType === "archived"
+                                      ? "bg-accent font-semibold text-foreground"
+                                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5 truncate">
+                                    <Archive className="h-3 w-3 text-blue-500 shrink-0" />
+                                    <span>Archivados</span>
+                                  </div>
+                                  <span className="text-[10px] font-mono text-muted-foreground">
+                                    {getFolderCount("archived", acc.id)}
+                                  </span>
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    setActiveModule("mail");
                                     setSelectedFolder({ accountId: acc.id, folderType: "trash" });
                                   }}
                                   className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
@@ -1409,8 +1807,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                                   }`}
                                 >
                                   <div className="flex items-center gap-1.5 truncate">
-                                    <Trash2 className="h-3 w-3 shrink-0" />
-                                    <span>Eliminados</span>
+                                    <Trash2 className="h-3 w-3 text-red-500 shrink-0" />
+                                    <span>Papelera / Eliminados</span>
                                   </div>
                                   <span className="text-[10px] font-mono text-muted-foreground">
                                     {getFolderCount("trash", acc.id)}
@@ -1778,39 +2176,121 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                 className="shrink-0 border-r border-border flex flex-col bg-card/20 min-w-[220px] max-w-[550px] relative select-none"
               >
                 {/* Header de Columna 2 */}
-                <div className="p-3 border-b border-border flex items-center justify-between bg-muted/20">
-                  <div className="truncate pr-2">
-                    <span className="font-bold text-xs text-foreground flex items-center gap-1.5 truncate">
-                      {selectedFolder.folderType === "inbox" && <Inbox className="h-3.5 w-3.5 text-primary shrink-0" />}
-                      {selectedFolder.folderType === "sent" && <Send className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                      {selectedFolder.folderType === "spam" && <AlertOctagon className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-                      {selectedFolder.folderType === "trash" && <Trash2 className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                      <span className="truncate">
-                        {selectedFolder.folderType === "inbox"
-                          ? "Bandeja de Entrada"
-                          : selectedFolder.folderType === "sent"
-                          ? "Elementos Enviados"
-                          : selectedFolder.folderType === "spam"
-                          ? "Spam / No deseado"
-                          : "Papelera / Eliminados"}
+                <div className="p-3 border-b border-border flex items-center justify-between bg-muted/20 gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {/* Checkbox Seleccionar Todos */}
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredEmails.length > 0 &&
+                        filteredEmails.every((em) => selectedEmailIds.includes(em.id))
+                      }
+                      onChange={handleToggleSelectAllVisible}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
+                      title="Seleccionar todos los correos visibles en esta carpeta"
+                    />
+                    <div className="truncate">
+                      <span className="font-bold text-xs text-foreground flex items-center gap-1.5 truncate">
+                        {selectedFolder.folderType === "inbox" && <Inbox className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        {selectedFolder.folderType === "archived" && <Archive className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
+                        {selectedFolder.folderType === "sent" && <Send className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+                        {selectedFolder.folderType === "spam" && <AlertOctagon className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                        {selectedFolder.folderType === "trash" && <Trash2 className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        <span className="truncate">
+                          {selectedFolder.folderType === "inbox"
+                            ? "Bandeja de Entrada"
+                            : selectedFolder.folderType === "archived"
+                            ? "Correos Archivados"
+                            : selectedFolder.folderType === "sent"
+                            ? "Elementos Enviados"
+                            : selectedFolder.folderType === "spam"
+                            ? "Spam / No deseado"
+                            : "Papelera / Eliminados"}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-[10px] text-muted-foreground block truncate">
-                      {selectedFolder.accountId === "all"
-                        ? "Todas las cuentas"
-                        : accountsList.find((a) => a.id === selectedFolder.accountId)?.displayName || "Cuenta seleccionada"}
-                    </span>
+                      <span className="text-[10px] text-muted-foreground block truncate">
+                        {selectedFolder.accountId === "all"
+                          ? "Todas las cuentas"
+                          : accountsList.find((a) => a.id === selectedFolder.accountId)?.displayName || "Cuenta seleccionada"}
+                      </span>
+                    </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setCol2Open(false)}
-                    className="p-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
-                    title="Cerrar lista de correos"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleSyncLiveAccounts()}
+                      disabled={isSyncingLive}
+                      className="px-2 py-1 rounded-md border border-primary/25 bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-semibold transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                      title="Sincronizar mensajes reales desde tu servidor IMAP"
+                    >
+                      <Clock className={`h-3 w-3 ${isSyncingLive ? "animate-spin" : ""}`} />
+                      <span>{isSyncingLive ? "Sinc..." : "Sincronizar"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCol2Open(false)}
+                      className="p-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+                      title="Cerrar lista de correos"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* Barra de Acciones en Lote cuando hay correos seleccionados */}
+                {selectedEmailIds.length > 0 && (
+                  <div className="px-3 py-2 border-b border-primary/30 bg-primary/10 flex items-center justify-between gap-2 text-xs animate-in fade-in">
+                    <span className="font-bold text-primary text-[11px] truncate">
+                      {selectedEmailIds.length} seleccionado(s)
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {selectedFolder.folderType !== "archived" && (
+                        <button
+                          type="button"
+                          onClick={() => handleArchiveEmails(selectedEmailIds)}
+                          className="px-2 py-1 rounded bg-card border border-border hover:bg-muted text-foreground font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                          title="Archivar todos los seleccionados"
+                        >
+                          <Archive className="h-3 w-3 text-blue-500" />
+                          <span>Archivar</span>
+                        </button>
+                      )}
+                      {(selectedFolder.folderType === "trash" || selectedFolder.folderType === "archived") && (
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreEmails(selectedEmailIds)}
+                          className="px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                          title="Restaurar a Bandeja de Entrada"
+                        >
+                          <Inbox className="h-3 w-3" />
+                          <span>Restaurar</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteEmails(selectedEmailIds)}
+                        className="px-2 py-1 rounded bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-600 dark:text-red-400 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                        title={
+                          selectedFolder.folderType === "trash"
+                            ? "Eliminar definitivamente los seleccionados"
+                            : "Mover seleccionados a la Papelera"
+                        }
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        <span>{selectedFolder.folderType === "trash" ? "Eliminar" : "Borrar"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedEmailIds([])}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground cursor-pointer"
+                        title="Cancelar selección"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Triage Chips (solo en Bandeja de Entrada) */}
                 {selectedFolder.folderType === "inbox" && (
@@ -1851,53 +2331,158 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                 {/* Lista de Correos */}
                 <div className="flex-1 overflow-y-auto divide-y divide-border/60">
                   {filteredEmails.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground text-xs">
+                    <div className="p-8 text-center text-muted-foreground text-xs space-y-3">
                       <Inbox className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      <p className="font-semibold">No hay correos en esta carpeta</p>
-                      <p className="text-[11px] mt-1">Los nuevos mensajes aparecerán aquí</p>
+                      <div>
+                        <p className="font-semibold text-foreground">No hay correos en esta carpeta</p>
+                        <p className="text-[11px] mt-1">
+                          {accountsList.length === 0
+                            ? "Conecta tu cuenta de correo principal para recibir y enviar mensajes reales."
+                            : "Los mensajes sincronizados de tu servidor aparecerán aquí."}
+                        </p>
+                      </div>
+                      {accountsList.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOnboardingStep(1);
+                            setOnboardingOpen(true);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Mail className="h-3.5 w-3.5" />
+                          <span>Configurar Cuenta Principal ({user?.email || "IMAP"})</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncLiveAccounts()}
+                          disabled={isSyncingLive}
+                          className="px-3.5 py-1.5 rounded-xl border border-primary/30 bg-primary/10 text-primary font-semibold text-xs hover:bg-primary/20 cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Clock className={`h-3.5 w-3.5 ${isSyncingLive ? "animate-spin" : ""}`} />
+                          <span>{isSyncingLive ? "Sincronizando con servidor IMAP..." : "Sincronizar Ahora"}</span>
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    filteredEmails.map((email) => (
-                      <div
-                        key={email.id}
-                        onClick={() => {
-                          setSelectedEmail(email);
-                          if (!col3Open) setCol3Open(true);
-                        }}
-                        className={`p-3.5 cursor-pointer transition-colors ${
-                          selectedEmail.id === email.id
-                            ? "bg-accent/40 border-l-2 border-primary"
-                            : "hover:bg-muted/30"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-1.5 font-semibold text-xs truncate">
-                            <span
-                              className="h-2 w-2 rounded-full shrink-0"
-                              style={{ backgroundColor: email.account.color }}
-                            />
-                            <span className="truncate">{email.senderName}</span>
+                    filteredEmails.map((email) => {
+                      const isChecked = selectedEmailIds.includes(email.id);
+                      return (
+                        <div
+                          key={email.id}
+                          onClick={() => {
+                            setSelectedEmail(email);
+                            if (!col3Open) setCol3Open(true);
+                          }}
+                          className={`p-3.5 cursor-pointer transition-colors group relative ${
+                            selectedEmail.id === email.id
+                              ? "bg-accent/40 border-l-2 border-primary"
+                              : isChecked
+                              ? "bg-primary/10 border-l-2 border-primary/60"
+                              : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1 gap-2">
+                            <div className="flex items-center gap-2 font-semibold text-xs truncate min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => handleToggleSelectEmail(email.id)}
+                                className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
+                                title="Seleccionar este correo"
+                              />
+                              <span
+                                className="h-2 w-2 rounded-full shrink-0"
+                                style={{ backgroundColor: email.account.color }}
+                              />
+                              <span className="truncate">{email.senderName}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {/* Botones rápidos en hover (Archivar / Borrar / Restaurar) */}
+                              <div className="hidden group-hover:flex items-center gap-0.5 bg-card/95 border border-border rounded-md px-1 py-0.5 shadow-xs">
+                                {email.folder !== "archived" ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleArchiveEmails([email.id]);
+                                    }}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-blue-500 transition-colors cursor-pointer"
+                                    title="Archivar correo"
+                                  >
+                                    <Archive className="h-3 w-3" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRestoreEmails([email.id]);
+                                    }}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-emerald-500 transition-colors cursor-pointer"
+                                    title="Mover a Entrada"
+                                  >
+                                    <Inbox className="h-3 w-3" />
+                                  </button>
+                                )}
+
+                                {email.folder === "trash" && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRestoreEmails([email.id]);
+                                    }}
+                                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-emerald-500 transition-colors cursor-pointer"
+                                    title="Restaurar de la Papelera"
+                                  >
+                                    <Inbox className="h-3 w-3" />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteEmails([email.id]);
+                                  }}
+                                  className="p-1 rounded hover:bg-red-500/15 text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
+                                  title={
+                                    email.folder === "trash"
+                                      ? "Eliminar definitivamente"
+                                      : "Mover a la Papelera"
+                                  }
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                              <span className="text-[11px] text-muted-foreground group-hover:hidden">
+                                {email.time}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[11px] text-muted-foreground shrink-0">{email.time}</span>
+                          <h3 className="font-medium text-xs truncate mb-1 text-foreground pl-5">
+                            {email.subject}
+                          </h3>
+                          {isEmailAiEnabled(email) ? (
+                            <div className="mt-1.5 ml-5 bg-primary/10 border border-primary/20 rounded p-1.5 flex items-start gap-1.5 text-[11px] text-primary leading-tight">
+                              <Sparkles className="h-3 w-3 shrink-0 mt-0.5" />
+                              <span className="truncate">{email.aiSummary}</span>
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 ml-5 bg-muted/60 border border-border rounded p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground leading-tight">
+                              <span className="truncate">{email.preview}</span>
+                              <span className="shrink-0 text-emerald-500 font-semibold flex items-center gap-0.5">
+                                <ShieldCheck className="h-3 w-3" /> Antispam/ClamAV
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <h3 className="font-medium text-xs truncate mb-1 text-foreground">
-                          {email.subject}
-                        </h3>
-                        {isEmailAiEnabled(email) ? (
-                          <div className="mt-1.5 bg-primary/10 border border-primary/20 rounded p-1.5 flex items-start gap-1.5 text-[11px] text-primary leading-tight">
-                            <Sparkles className="h-3 w-3 shrink-0 mt-0.5" />
-                            <span className="truncate">{email.aiSummary}</span>
-                          </div>
-                        ) : (
-                          <div className="mt-1.5 bg-muted/60 border border-border rounded p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground leading-tight">
-                            <span className="truncate">{email.preview}</span>
-                            <span className="shrink-0 text-emerald-500 font-semibold flex items-center gap-0.5">
-                              <ShieldCheck className="h-3 w-3" /> Antispam/ClamAV
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </section>
@@ -2064,11 +2649,67 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                               </>
                             )}
                           </div>
+                          {/* Botones rápidos de Archivar y Borrar en cabecera de lectura */}
+                          {selectedEmail.folder !== "archived" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleArchiveEmails([selectedEmail.id])}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground font-semibold transition-colors cursor-pointer"
+                              title="Archivar este correo"
+                            >
+                              <Archive className="h-3.5 w-3.5 text-blue-500" />
+                              <span className="hidden xl:inline">Archivar</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreEmails([selectedEmail.id])}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold transition-colors cursor-pointer"
+                              title="Mover de vuelta a Bandeja de Entrada"
+                            >
+                              <Inbox className="h-3.5 w-3.5" />
+                              <span className="hidden xl:inline">A Entrada</span>
+                            </button>
+                          )}
+
+                          {selectedEmail.folder === "trash" ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreEmails([selectedEmail.id])}
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold transition-colors cursor-pointer"
+                                title="Restaurar correo a Bandeja de Entrada"
+                              >
+                                <Inbox className="h-3.5 w-3.5" />
+                                <span>Restaurar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEmails([selectedEmail.id])}
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-semibold transition-colors cursor-pointer"
+                                title="Eliminar definitivamente de la Papelera"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>Eliminar definitivo</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEmails([selectedEmail.id])}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-semibold transition-colors cursor-pointer"
+                              title="Mover este correo a la Papelera"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span className="hidden xl:inline">Borrar</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => handleOpenComposer(
                               selectedEmail.senderEmail,
                               `Re: ${selectedEmail.subject}`,
-                              `\n\n-------------------------\nEl ${selectedEmail.time}, ${selectedEmail.senderName} <${selectedEmail.senderEmail}> escribió:\n> Estimado equipo,\n> Adjunto los detalles acordados para la etapa de cierre de año...\n`
+                              `\n\n-------------------------\nEl ${selectedEmail.time}, ${selectedEmail.senderName} <${selectedEmail.senderEmail}> escribió:\n> ${selectedEmail.bodyText || selectedEmail.preview || ""}\n`
                             )}
                             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold shadow hover:bg-primary/90 cursor-pointer transition-colors"
                             title="Responder"
@@ -2155,15 +2796,25 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setEmailsList((prev) => prev.filter((e) => e.id !== selectedEmail.id));
-                                      setActionNotice("Correo movido a la papelera");
+                                      handleArchiveEmails([selectedEmail.id]);
                                       setEmailActionsMenuOpen(false);
-                                      setTimeout(() => setActionNotice(null), 3000);
+                                    }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-foreground transition-colors cursor-pointer"
+                                  >
+                                    <Archive className="h-4 w-4 text-blue-500 shrink-0" />
+                                    <span>Archivar correo</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleDeleteEmails([selectedEmail.id]);
+                                      setEmailActionsMenuOpen(false);
                                     }}
                                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-destructive/10 text-destructive transition-colors cursor-pointer"
                                   >
                                     <Trash2 className="h-4 w-4 shrink-0" />
-                                    <span>Eliminar correo</span>
+                                    <span>{selectedEmail.folder === "trash" ? "Eliminar definitivamente" : "Mover a la Papelera"}</span>
                                   </button>
                                 </div>
                               </>
@@ -2520,19 +3171,28 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
                     {/* 3. CUERPO DEL CORREO: Aspecto de Hoja de Papel */}
                     <div className="p-8 text-xs leading-relaxed space-y-4 text-foreground/90 font-sans min-h-[220px] bg-card">
-                      <p>Estimado equipo,</p>
-                      <p>
-                        Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el
-                        desglose por rubro y los plazos de entrega estimados para cada entregable.
-                      </p>
-                      <p>
-                        ¿Tendrán disponibilidad el <strong>jueves a las 15:00 hs</strong> para revisar estos puntos en
-                        una llamada de 45 minutos?
-                      </p>
-                      <p className="pt-3">
-                        Saludos cordiales,<br />
-                        <strong>{selectedEmail.senderName}</strong>
-                      </p>
+                      {selectedEmail.bodyHtml ? (
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto"
+                          dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
+                        />
+                      ) : selectedEmail.bodyText ? (
+                        <div className="whitespace-pre-wrap font-sans leading-relaxed">
+                          {selectedEmail.bodyText}
+                        </div>
+                      ) : (
+                        <>
+                          <p>Estimado equipo,</p>
+                          <p>
+                            {selectedEmail.preview ||
+                              "Adjunto los detalles acordados para la etapa de cierre de año. En el archivo se detalla el desglose por rubro y los plazos de entrega estimados para cada entregable."}
+                          </p>
+                          <p className="pt-3">
+                            Saludos cordiales,<br />
+                            <strong>{selectedEmail.senderName}</strong>
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     {/* 4. Archivos Adjuntos (Estilo Outlook con descarga y vista previa) */}
@@ -2990,142 +3650,249 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         </div>
       )}
 
-      {/* Onboarding Guiado (Wizard de 3 Pasos para Conectar la Primera Cuenta) */}
+      {/* Onboarding Guiado (Conexión Directa de Primera Cuenta de Correo Principal sin Mock Data) */}
       {onboardingOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col text-xs">
             <div className="px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-mono uppercase text-primary font-bold">
-                  Paso {onboardingStep} de 3 • Configuración Guiada
-                </span>
-                <h2 className="font-bold text-sm text-foreground mt-0.5">
-                  Bienvenido a Worvanta — Conecta tu espacio en 2 minutos
-                </h2>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-500">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-primary font-bold">
+                    Configuración de Cuenta Principal • {user?.tenantName || "Tu Organización"}
+                  </span>
+                  <h2 className="font-bold text-sm text-foreground mt-0.5">
+                    Conecta tu Correo Principal ({onboardingImapEmail || user?.email || "IMAP / SMTP"})
+                  </h2>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setOnboardingOpen(false)}
                 className="p-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+                title="Cerrar"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              {onboardingStep === 1 && (
-                <div className="space-y-3">
-                  <h3 className="font-bold text-sm text-foreground">
-                    1. Conecta tu primera cuenta de correo y calendario
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Elige tu proveedor corporativo. Worvanta utiliza el método recomendado y seguro para cada plataforma:
-                  </p>
-                  <div className="space-y-2">
-                    <div className="p-3 rounded-xl border border-orange-500/30 bg-orange-500/5">
-                      <div className="font-bold text-foreground">🏢 Microsoft 365 / Exchange Online</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        Conexión mediante <strong>OAuth 2.0 (Entra ID)</strong> para Correo y Calendario (sin contraseñas básicas).
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/5">
-                      <div className="font-bold text-foreground">✉️ Gmail / Google Workspace</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        Correo vía <strong>IMAP/SMTP + Contraseña de Aplicación (requiere 2FA)</strong> y <strong>Google Calendar por OAuth 2.0 directo</strong>.
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
-                      <div className="font-bold text-foreground">🖥️ Servidor Propio / Hosting (cPanel, Zimbra, Zoho)</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        Conexión IMAP/SMTP estándar con protección anti-SSRF y cifrado versionado AES-256-GCM (<span className="font-mono">v1</span>).
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOnboardingOpen(false);
-                      setIsAccountsModalOpen(true);
-                    }}
-                    className="w-full py-2 rounded-xl bg-primary/15 text-primary font-bold hover:bg-primary/25 transition-colors cursor-pointer"
-                  >
-                    Abrir Conector de Cuentas & Calendarios →
-                  </button>
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[82vh]">
+              {/* Selector de proveedor con IMAP Corporativo como opción principal */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  1. Tipo de Servidor de Correo
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      id: "imap" as const,
+                      title: "IMAP / SMTP Propio",
+                      desc: "cPanel, Zimbra, Postfix, DonWeb, Hostinger",
+                    },
+                    {
+                      id: "gmail" as const,
+                      title: "Google Workspace",
+                      desc: "imap.gmail.com + App Password",
+                    },
+                    {
+                      id: "microsoft" as const,
+                      title: "Microsoft 365",
+                      desc: "outlook.office365.com / Graph",
+                    },
+                  ].map((prov) => (
+                    <button
+                      key={prov.id}
+                      type="button"
+                      onClick={() => {
+                        setOnboardingProvider(prov.id);
+                        if (prov.id === "gmail") {
+                          setOnboardingImapHost("imap.gmail.com");
+                          setOnboardingImapPort("993");
+                          setOnboardingSmtpHost("smtp.gmail.com");
+                          setOnboardingSmtpPort("465");
+                        } else if (prov.id === "microsoft") {
+                          setOnboardingImapHost("outlook.office365.com");
+                          setOnboardingImapPort("993");
+                          setOnboardingSmtpHost("smtp.office365.com");
+                          setOnboardingSmtpPort("587");
+                        } else {
+                          const domain = (onboardingImapEmail || user?.email || "").split("@")[1] || "acizer.com.ar";
+                          setOnboardingImapHost(`mail.${domain}`);
+                          setOnboardingImapPort("993");
+                          setOnboardingSmtpHost(`mail.${domain}`);
+                          setOnboardingSmtpPort("465");
+                        }
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        onboardingProvider === prov.id
+                          ? "border-primary bg-primary/10 shadow-xs"
+                          : "border-border bg-card hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="font-bold text-foreground text-xs">{prov.title}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{prov.desc}</div>
+                    </button>
+                  ))}
                 </div>
-              )}
-
-              {onboardingStep === 2 && (
-                <div className="space-y-3">
-                  <h3 className="font-bold text-sm text-foreground">
-                    2. Personaliza tu Firma y el Tono del Borrador IA
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Define tu firma personal que se insertará automáticamente al redactar o usar plantillas rápidas:
-                  </p>
-                  <textarea
-                    rows={3}
-                    value={userProfile.personalSignature || ""}
-                    onChange={(e) =>
-                      setUserProfile((prev) => ({ ...prev, personalSignature: e.target.value }))
-                    }
-                    className="w-full bg-muted/40 border border-border rounded-xl p-3 text-xs font-mono text-foreground"
-                  />
-                  <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-[11px] text-muted-foreground">
-                    ✨ En el compositor podrás elegir entre tono <strong>Ejecutivo, Formal, Directo o Empático</strong>, además de programar envíos y deshacer envíos durante 8 segundos.
-                  </div>
-                </div>
-              )}
-
-              {onboardingStep === 3 && (
-                <div className="space-y-3">
-                  <h3 className="font-bold text-sm text-foreground">
-                    3. Bandeja Compartida, Reglas Automáticas y Enlace de Reservas
-                  </h3>
-                  <ul className="space-y-2 text-muted-foreground list-disc list-inside leading-relaxed">
-                    <li>
-                      <strong>Bandeja Compartida:</strong> asigna correos de <span className="font-mono">soporte@</span> o <span className="font-mono">ventas@</span> a miembros del equipo con estados (Abierto, En curso, Resuelto) y notas internas privadas.
-                    </li>
-                    <li>
-                      <strong>Búsqueda Semántica (<span className="font-mono">⌘K</span>):</strong> pregunta en lenguaje natural sobre correos, contactos, tareas o mensajes de chat.
-                    </li>
-                    <li>
-                      <strong>Tu enlace público estilo Calendly:</strong> ya está activo en <a href="/book/reunion-30min" target="_blank" rel="noreferrer" className="text-primary underline font-mono">/book/reunion-30min</a>.
-                    </li>
-                  </ul>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-border">
-                <button
-                  type="button"
-                  disabled={onboardingStep === 1}
-                  onClick={() => setOnboardingStep((s) => (s === 3 ? 2 : 1))}
-                  className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40 cursor-pointer"
-                >
-                  Anterior
-                </button>
-                {onboardingStep < 3 ? (
-                  <button
-                    type="button"
-                    onClick={() => setOnboardingStep((s) => (s === 1 ? 2 : 3))}
-                    className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold cursor-pointer"
-                  >
-                    Siguiente Paso →
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOnboardingOpen(false);
-                      setActionNotice("🎉 ¡Onboarding completado! Tu espacio está listo.");
-                      setTimeout(() => setActionNotice(null), 3500);
-                    }}
-                    className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold cursor-pointer"
-                  >
-                    ¡Listo, empezar a usar Worvanta!
-                  </button>
-                )}
               </div>
+
+              {/* Formulario de conexión real IMAP / SMTP */}
+              <form onSubmit={handleConnectPrimaryImapAccount} className="space-y-3.5 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Dirección de Correo Principal
+                    </label>
+                    <input
+                      type="email"
+                      value={onboardingImapEmail}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOnboardingImapEmail(val);
+                        const domain = val.split("@")[1];
+                        if (domain && onboardingProvider === "imap") {
+                          setOnboardingImapHost(`mail.${domain}`);
+                          setOnboardingSmtpHost(`mail.${domain}`);
+                        }
+                      }}
+                      placeholder="mariano@acizer.com.ar"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground font-mono"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Contraseña del Correo / App Password
+                    </label>
+                    <input
+                      type="password"
+                      value={onboardingImapPassword}
+                      onChange={(e) => setOnboardingImapPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-muted/30 border border-border">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Servidor Entrada (IMAP Host)
+                    </label>
+                    <input
+                      type="text"
+                      value={onboardingImapHost}
+                      onChange={(e) => setOnboardingImapHost(e.target.value)}
+                      placeholder="mail.acizer.com.ar o imap.acizer.com.ar"
+                      className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono"
+                      required
+                    />
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-[10px] text-muted-foreground">Sugerencias rápidas:</span>
+                      {(() => {
+                        const dom = (onboardingImapEmail || user?.email || "").split("@")[1] || "acizer.com.ar";
+                        return [`mail.${dom}`, `imap.${dom}`].map((h) => (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={() => {
+                              setOnboardingImapHost(h);
+                              setOnboardingSmtpHost(h.replace(/^imap\./, "smtp."));
+                            }}
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                          >
+                            {h}
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Puerto IMAP (SSL/TLS)
+                    </label>
+                    <select
+                      value={onboardingImapPort}
+                      onChange={(e) => setOnboardingImapPort(e.target.value)}
+                      className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono"
+                    >
+                      <option value="993">993 (SSL/TLS Recomendado)</option>
+                      <option value="143">143 (STARTTLS)</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2 pt-1">
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Servidor Salida (SMTP Host)
+                    </label>
+                    <input
+                      type="text"
+                      value={onboardingSmtpHost}
+                      onChange={(e) => setOnboardingSmtpHost(e.target.value)}
+                      placeholder="mail.acizer.com.ar o smtp.acizer.com.ar"
+                      className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono"
+                      required
+                    />
+                  </div>
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                      Puerto SMTP
+                    </label>
+                    <select
+                      value={onboardingSmtpPort}
+                      onChange={(e) => setOnboardingSmtpPort(e.target.value)}
+                      className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground font-mono"
+                    >
+                      <option value="465">465 (SSL/TLS)</option>
+                      <option value="587">587 (STARTTLS)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {onboardingError && (
+                  <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs flex items-start gap-2">
+                    <AlertOctagon className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{onboardingError}</span>
+                  </div>
+                )}
+
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
+                  <span>
+                    Tus credenciales se cifran con <strong>AES-256-GCM (v1)</strong> y validación anti-SSRF antes de conectar tu buzón.
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => setOnboardingOpen(false)}
+                    className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Configurar más tarde
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={onboardingConnecting}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 cursor-pointer flex items-center gap-2 shadow-md disabled:opacity-50"
+                  >
+                    {onboardingConnecting ? (
+                      <>
+                        <Clock className="h-4 w-4 animate-spin" />
+                        <span>Verificando IMAP y Sincronizando Bandeja...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4" />
+                        <span>Conectar Cuenta y Descargar Correos Reales</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
