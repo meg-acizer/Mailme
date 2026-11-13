@@ -33,9 +33,9 @@ AS $$
       'email'::TEXT AS source_type,
       e.id AS item_id,
       COALESCE(e.subject, '(Sin asunto)') AS title,
-      COALESCE(e.snippet, LEFT(e.body_text, 200), '') AS snippet,
+      COALESCE(e.ai_summary, LEFT(e.body_text, 200), '') AS snippet,
       1 - (e.embedding <=> query_embedding) AS similarity,
-      e.received_at AS created_at
+      e.date AS created_at
     FROM public.emails e
     WHERE e.tenant_id = p_tenant_id
       AND e.embedding IS NOT NULL
