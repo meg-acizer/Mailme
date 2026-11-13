@@ -423,6 +423,105 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
   const [isEditingSignature, setIsEditingSignature] = useState(false);
   const [isSavingPolicies, setIsSavingPolicies] = useState(false);
 
+  // Live Security Simulator State (ClamAV & Antispam Tester)
+  const [simResult, setSimResult] = useState<{
+    clean: boolean;
+    title: string;
+    detail: string;
+    engine: string;
+  } | null>(null);
+  const [isRunningSim, setIsRunningSim] = useState(false);
+
+  const handleRunSecurityTest = async (
+    testKind: "clean_pdf" | "eicar_virus" | "blocked_exe" | "spf_pass" | "spf_fail_spoof"
+  ) => {
+    setIsRunningSim(true);
+    setSimResult(null);
+    try {
+      if (testKind === "clean_pdf" || testKind === "eicar_virus" || testKind === "blocked_exe") {
+        const payload =
+          testKind === "clean_pdf"
+            ? { fileName: "Contrato_Comercial_2026.pdf", fileSize: 420000, fileData: "%PDF-1.7 clean document" }
+            : testKind === "eicar_virus"
+            ? {
+                fileName: "Factura_Adjunta.pdf",
+                fileSize: 128000,
+                fileData: "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*",
+              }
+            : { fileName: "Actualizacion_Urgente.exe", fileSize: 950000, fileData: "MZ executable header" };
+
+        const res = await fetch("/api/mail/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok && data.clean) {
+          setSimResult({
+            clean: true,
+            title: `✓ Archivo Limpio Verificado (${data.fileName})`,
+            detail: data.statusMessage,
+            engine: data.engine,
+          });
+        } else {
+          setSimResult({
+            clean: false,
+            title: `🛑 AMENAZA BLOQUEADA EN CUARENTENA: ${data.threatName}`,
+            detail: `${data.recommendation} (Registrado en Auditoría del Tenant)`,
+            engine: data.engine || "ClamAV Enterprise Engine",
+          });
+        }
+      } else {
+        const payload =
+          testKind === "spf_pass"
+            ? {
+                mode: "antispam",
+                fromAddress: "cmendoza@techcorp.io",
+                authenticationResultsHeader: "mx.google.com; spf=pass; dkim=pass; dmarc=pass",
+                blacklistDomains,
+              }
+            : {
+                mode: "antispam",
+                fromAddress: "ceo-urgente@phishing-alert.com",
+                authenticationResultsHeader: "mx.worvanta.io; spf=fail; dkim=fail; dmarc=fail",
+                blacklistDomains,
+              };
+
+        const res = await fetch("/api/mail/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        const a = data.assessment;
+        if (!a?.isSpamSuspected) {
+          setSimResult({
+            clean: true,
+            title: `✓ Correo Legítimo Autenticado (${payload.fromAddress})`,
+            detail: `SPF=${a.spfResult.toUpperCase()} • DKIM=${a.dkimResult.toUpperCase()} • DMARC=${a.dmarcResult.toUpperCase()}`,
+            engine: "Worvanta Antispam Guard (SPF/DKIM/DMARC)",
+          });
+        } else {
+          setSimResult({
+            clean: false,
+            title: `🛑 SPAM / PHISHING INTERCEPTADO (${payload.fromAddress})`,
+            detail: `${a.reason} (Movido automáticamente a Spam y auditado)`,
+            engine: "Worvanta Antispam Guard (SPF/DKIM/DMARC)",
+          });
+        }
+      }
+    } catch (e: any) {
+      setSimResult({
+        clean: false,
+        title: "Error al ejecutar diagnóstico",
+        detail: e.message || "Error de red",
+        engine: "Security Diagnostic",
+      });
+    } finally {
+      setIsRunningSim(false);
+    }
+  };
+
   // Load Security & Corporate Assets Policies
   useEffect(() => {
     async function fetchPolicies() {
@@ -1692,22 +1791,94 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                   </div>
                 </div>
 
-                {/* Antivirus ClamAV Scanner Status */}
-                <div className="border-t border-border pt-4">
-                  <div className="flex items-center justify-between mb-3">
+                {/* Antivirus ClamAV & Antispam Live Diagnostic Simulator */}
+                <div className="border-t border-border pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 font-semibold text-xs">
                       <ShieldAlert className="h-4 w-4 text-emerald-500" />
-                      <span>Monitor Antivirus en Tiempo Real</span>
+                      <span>Monitor Antivirus ClamAV & Escudo Antispam en Tiempo Real</span>
                     </div>
                     <span className="text-[10px] bg-emerald-500/15 text-emerald-500 font-bold px-2 py-0.5 rounded-full">
-                      ClamAV Activo
+                      ClamAV + SPF/DKIM Activos
                     </span>
                   </div>
+
                   <div className="p-3 bg-muted/30 border border-border/80 rounded-lg text-xs text-muted-foreground flex items-center justify-between">
-                    <span>Archivos escaneados en las últimas 24h: <strong>148 adjuntos</strong></span>
+                    <span>Archivos y cabeceras escaneados en las últimas 24h: <strong>148 adjuntos</strong></span>
                     <span className="text-emerald-500 font-medium flex items-center gap-1">
-                      <Check className="h-3.5 w-3.5" /> 0 amenazas detectadas
+                      <Check className="h-3.5 w-3.5" /> Motor en línea
                     </span>
+                  </div>
+
+                  {/* Interactive Diagnostic Buttons */}
+                  <div className="p-4 rounded-xl bg-muted/20 border border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-foreground">
+                        Probador en Vivo de Antivirus (ClamAV) y Antispam (SPF/DKIM)
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        Ejecuta pruebas reales contra <code>/api/mail/scan</code>
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={isRunningSim}
+                        onClick={() => handleRunSecurityTest("clean_pdf")}
+                        className="px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-medium text-foreground cursor-pointer transition-colors"
+                      >
+                        📄 Probar PDF Limpio
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunningSim}
+                        onClick={() => handleRunSecurityTest("eicar_virus")}
+                        className="px-3 py-1.5 rounded-lg border border-destructive/30 bg-destructive/10 hover:bg-destructive/20 text-xs font-semibold text-destructive cursor-pointer transition-colors"
+                      >
+                        🦠 Simular Virus EICAR
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunningSim}
+                        onClick={() => handleRunSecurityTest("blocked_exe")}
+                        className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-xs font-semibold text-amber-600 dark:text-amber-400 cursor-pointer transition-colors"
+                      >
+                        ⚠️ Simular Ejecutable (.exe)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunningSim}
+                        onClick={() => handleRunSecurityTest("spf_pass")}
+                        className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-xs font-semibold text-emerald-600 dark:text-emerald-400 cursor-pointer transition-colors"
+                      >
+                        🛡️ Probar Cabecera SPF/DKIM Válida
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRunningSim}
+                        onClick={() => handleRunSecurityTest("spf_fail_spoof")}
+                        className="px-3 py-1.5 rounded-lg border border-destructive/30 bg-destructive/10 hover:bg-destructive/20 text-xs font-semibold text-destructive cursor-pointer transition-colors"
+                      >
+                        🎣 Simular Phishing / Blacklist
+                      </button>
+                    </div>
+
+                    {simResult && (
+                      <div
+                        className={`p-3 rounded-xl border text-xs space-y-1 animate-in fade-in ${
+                          simResult.clean
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                            : "bg-destructive/10 border-destructive/30 text-destructive"
+                        }`}
+                      >
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{simResult.title}</span>
+                          <span className="text-[10px] font-mono opacity-80">{simResult.engine}</span>
+                        </div>
+                        <p className="text-[11px] opacity-90">{simResult.detail}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptCredentials } from "@/lib/crypto";
 import { fetchRecentImapEmails } from "@/lib/mail/imap";
+import { evaluateEmailAntispam } from "@/lib/mail/antispam";
 import type { AccountCredentials } from "@/types/mail";
 
 export async function POST(request: Request) {
@@ -26,11 +27,26 @@ export async function POST(request: Request) {
     // Set status to syncing
     await supabase.from("accounts").update({ sync_status: "syncing" }).eq("id", account.id);
 
+    // Fetch Tenant security policies (Blacklist domains)
+    const { data: tenantData } = await supabase
+      .from("tenants")
+      .select("settings")
+      .eq("id", account.tenant_id)
+      .maybeSingle();
+
+    const tenantSettings = (tenantData?.settings as Record<string, any>) || {};
+    const blacklistDomains: string[] = Array.isArray(tenantSettings.security_policies?.blacklistDomains)
+      ? tenantSettings.security_policies.blacklistDomains
+      : ["phishing-alert.com", "spam-marketing.net"];
+
     const decryptedJson = decryptCredentials(account.credentials_encrypted);
     const credentials: AccountCredentials = JSON.parse(decryptedJson);
 
     if (credentials.imap) {
-      const messages = await fetchRecentImapEmails(credentials.imap, { limit: limit || 20 });
+      const messages = await fetchRecentImapEmails(credentials.imap, {
+        limit: limit || 20,
+        blacklistDomains,
+      });
 
       // Insert or upsert emails into Supabase
       let insertedCount = 0;
@@ -51,8 +67,8 @@ export async function POST(request: Request) {
             date: msg.date.toISOString(),
             is_read: msg.isRead,
             is_flagged: msg.isFlagged,
-            spf_dkim_status: "verified",
-            triage_class: "info",
+            spf_dkim_status: msg.spfDkimStatus || "verified",
+            triage_class: msg.isSpamOrBlacklisted ? "spam" : "info",
           },
           { onConflict: "tenant_id, remote_msg_id" }
         );
@@ -82,13 +98,20 @@ export async function POST(request: Request) {
       if (graphRes.ok) {
         const graphData = await graphRes.json();
         for (const item of graphData.value || []) {
+          const senderAddr = item.from?.emailAddress?.address || "";
+          const antispam = evaluateEmailAntispam({
+            fromAddress: senderAddr,
+            blacklistDomains,
+            subject: item.subject,
+          });
+
           const { error: insertError } = await supabase.from("emails").upsert(
             {
               tenant_id: account.tenant_id,
               account_id: account.id,
               remote_msg_id: item.id,
               thread_id: item.conversationId,
-              from_address: item.from?.emailAddress?.address || "",
+              from_address: senderAddr,
               from_name: item.from?.emailAddress?.name || "",
               to_addresses: (item.toRecipients || []).map((r: any) => r.emailAddress?.address),
               cc_addresses: (item.ccRecipients || []).map((r: any) => r.emailAddress?.address),
@@ -98,8 +121,8 @@ export async function POST(request: Request) {
               date: item.receivedDateTime || new Date().toISOString(),
               is_read: Boolean(item.isRead),
               is_flagged: item.flag?.flagStatus === "flagged",
-              spf_dkim_status: "verified",
-              triage_class: "info",
+              spf_dkim_status: antispam.spfDkimStatus,
+              triage_class: antispam.isSpamSuspected ? "spam" : "info",
             },
             { onConflict: "tenant_id, remote_msg_id" }
           );

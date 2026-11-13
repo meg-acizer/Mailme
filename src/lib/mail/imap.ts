@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { ImapConfig, ParsedEmailMessage } from "@/types/mail";
 import { sanitizeEmailHtml } from "./sanitizer";
+import { evaluateEmailAntispam } from "./antispam";
 
 export async function verifyImapConnection(config: ImapConfig): Promise<boolean> {
   const client = new ImapFlow({
@@ -27,7 +28,7 @@ export async function verifyImapConnection(config: ImapConfig): Promise<boolean>
 
 export async function fetchRecentImapEmails(
   config: ImapConfig,
-  options: { folder?: string; limit?: number } = {}
+  options: { folder?: string; limit?: number; blacklistDomains?: string[] } = {}
 ): Promise<ParsedEmailMessage[]> {
   const folder = options.folder || "INBOX";
   const limit = options.limit || 30;
@@ -82,6 +83,19 @@ export async function fetchRecentImapEmails(
             : parsed.cc.value.map((v) => v.address || "")
           : [];
 
+        const authResultsVal = parsed.headers.get("authentication-results");
+        const receivedSpfVal = parsed.headers.get("received-spf");
+        const dkimSigVal = parsed.headers.get("dkim-signature");
+
+        const antispam = evaluateEmailAntispam({
+          fromAddress,
+          authenticationResultsHeader: typeof authResultsVal === "string" ? authResultsVal : String(authResultsVal || ""),
+          receivedSpfHeader: typeof receivedSpfVal === "string" ? receivedSpfVal : String(receivedSpfVal || ""),
+          dkimSignatureHeader: typeof dkimSigVal === "string" ? dkimSigVal : String(dkimSigVal || ""),
+          blacklistDomains: options.blacklistDomains,
+          subject: parsed.subject,
+        });
+
         messages.push({
           remoteMsgId: parsed.messageId || `${message.uid}-${Date.now()}`,
           threadId: parsed.inReplyTo || undefined,
@@ -96,6 +110,8 @@ export async function fetchRecentImapEmails(
           isRead: message.flags?.has("\\Seen") || false,
           isFlagged: message.flags?.has("\\Flagged") || false,
           attachmentsCount: parsed.attachments ? parsed.attachments.length : 0,
+          spfDkimStatus: antispam.spfDkimStatus,
+          isSpamOrBlacklisted: antispam.isSpamSuspected,
         });
       }
     } finally {

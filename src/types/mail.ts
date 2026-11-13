@@ -66,4 +66,6 @@ export interface ParsedEmailMessage {
   isRead: boolean;
   isFlagged: boolean;
   attachmentsCount: number;
+  spfDkimStatus?: "verified" | "failed" | "unknown";
+  isSpamOrBlacklisted?: boolean;
 }
