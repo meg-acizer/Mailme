@@ -50,6 +50,7 @@ import {
   Forward,
   Printer,
   Mail,
+  MailOpen,
   Trash2,
   CheckCircle,
   AlertCircle,
@@ -91,6 +92,7 @@ interface EmailItem {
   aiSummary: string;
   time: string;
   isUnread: boolean;
+  isRead?: boolean;
   triage: "important" | "pending" | "other";
   priority?: "high" | "normal" | "low";
   tags?: string[];
@@ -901,6 +903,46 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         : `📥 ${ids.length} correos restaurados a Bandeja de Entrada`
     );
     setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleSelectAndReadEmail = (email: EmailItem) => {
+    if (email.isUnread || !email.isRead) {
+      setEmailsList((prev) =>
+        prev.map((e) => (e.id === email.id ? { ...e, isUnread: false, isRead: true } : e))
+      );
+      setSelectedEmail({ ...email, isUnread: false, isRead: true });
+    } else {
+      setSelectedEmail(email);
+    }
+    if (!col3Open) setCol3Open(true);
+  };
+
+  const handleMarkAsRead = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setEmailsList((prev) =>
+      prev.map((item) => (ids.includes(item.id) ? { ...item, isUnread: false, isRead: true } : item))
+    );
+    if (ids.includes(selectedEmail.id)) {
+      setSelectedEmail((prev) => ({ ...prev, isUnread: false, isRead: true }));
+    }
+    setActionNotice(
+      ids.length === 1 ? "✓ Correo marcado como leído" : `✓ ${ids.length} correos marcados como leídos`
+    );
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleMarkAsUnread = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setEmailsList((prev) =>
+      prev.map((item) => (ids.includes(item.id) ? { ...item, isUnread: true, isRead: false } : item))
+    );
+    if (ids.includes(selectedEmail.id)) {
+      setSelectedEmail((prev) => ({ ...prev, isUnread: true, isRead: false }));
+    }
+    setActionNotice(
+      ids.length === 1 ? "Correo marcado como no leído" : `${ids.length} correos marcados como no leídos`
+    );
+    setTimeout(() => setActionNotice(null), 3000);
   };
 
   const handleUpdateCompanyData = (updated: TenantCompanyData) => {
@@ -2219,8 +2261,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             onNavigateToMail={(emailId) => {
               setActiveModule("mail");
               if (emailId) {
-                const found = mockEmails.find((m) => m.id === emailId);
-                if (found) setSelectedEmail(found);
+                const found = emailsList.find((m) => m.id === emailId);
+                if (found) handleSelectAndReadEmail(found);
               }
             }}
           />
@@ -2234,8 +2276,8 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
             onNavigateToMail={(emailId) => {
               setActiveModule("mail");
               if (emailId) {
-                const found = mockEmails.find((m) => m.id === emailId);
-                if (found) setSelectedEmail(found);
+                const found = emailsList.find((m) => m.id === emailId);
+                if (found) handleSelectAndReadEmail(found);
               }
             }}
             onOpenComposerWithAttachment={(attachment) => {
@@ -2320,6 +2362,24 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                       {selectedEmailIds.length} seleccionado(s)
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAsRead(selectedEmailIds)}
+                        className="px-2 py-1 rounded bg-card border border-border hover:bg-muted text-foreground font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                        title="Marcar seleccionados como leídos"
+                      >
+                        <MailOpen className="h-3 w-3 text-primary" />
+                        <span>Leído</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAsUnread(selectedEmailIds)}
+                        className="px-2 py-1 rounded bg-card border border-border hover:bg-muted text-foreground font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                        title="Marcar seleccionados como no leídos"
+                      >
+                        <Mail className="h-3 w-3 text-muted-foreground" />
+                        <span>No leído</span>
+                      </button>
                       {selectedFolder.folderType !== "archived" && (
                         <button
                           type="button"
@@ -2443,23 +2503,25 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                   ) : (
                     filteredEmails.map((email) => {
                       const isChecked = selectedEmailIds.includes(email.id);
+                      const isUnread = Boolean(email.isUnread);
                       return (
                         <div
                           key={email.id}
                           onClick={() => {
-                            setSelectedEmail(email);
-                            if (!col3Open) setCol3Open(true);
+                            handleSelectAndReadEmail(email);
                           }}
                           className={`p-3.5 cursor-pointer transition-colors group relative ${
                             selectedEmail.id === email.id
                               ? "bg-accent/40 border-l-2 border-primary"
                               : isChecked
                               ? "bg-primary/10 border-l-2 border-primary/60"
-                              : "hover:bg-muted/30"
+                              : isUnread
+                              ? "bg-card/70 hover:bg-muted/40 font-semibold"
+                              : "hover:bg-muted/30 opacity-90"
                           }`}
                         >
                           <div className="flex items-center justify-between mb-1 gap-2">
-                            <div className="flex items-center gap-2 font-semibold text-xs truncate min-w-0">
+                            <div className="flex items-center gap-2 text-xs truncate min-w-0">
                               <input
                                 type="checkbox"
                                 checked={isChecked}
@@ -2468,16 +2530,48 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                                 className="h-3.5 w-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
                                 title="Seleccionar este correo"
                               />
+
+                              {/* Indicador visual de No Leído (punto azul) o color de cuenta */}
+                              {isUnread ? (
+                                <span
+                                  className="h-2 w-2 rounded-full bg-blue-500 shrink-0 shadow-xs ring-2 ring-blue-500/20"
+                                  title="Correo no leído"
+                                />
+                              ) : (
+                                <span
+                                  className="h-2 w-2 rounded-full shrink-0 opacity-70"
+                                  style={{ backgroundColor: email.account.color }}
+                                />
+                              )}
+
                               <span
-                                className="h-2 w-2 rounded-full shrink-0"
-                                style={{ backgroundColor: email.account.color }}
-                              />
-                              <span className="truncate">{email.senderName}</span>
+                                className={`truncate ${
+                                  isUnread ? "font-bold text-foreground" : "font-normal text-muted-foreground"
+                                }`}
+                              >
+                                {email.senderName}
+                              </span>
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
-                              {/* Botones rápidos en hover (Archivar / Borrar / Restaurar) */}
+                              {/* Botones rápidos en hover (Leído/No leído / Archivar / Borrar / Restaurar) */}
                               <div className="hidden group-hover:flex items-center gap-0.5 bg-card/95 border border-border rounded-md px-1 py-0.5 shadow-xs">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isUnread) {
+                                      handleMarkAsRead([email.id]);
+                                    } else {
+                                      handleMarkAsUnread([email.id]);
+                                    }
+                                  }}
+                                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                                  title={isUnread ? "Marcar como leído" : "Marcar como no leído"}
+                                >
+                                  {isUnread ? <MailOpen className="h-3 w-3" /> : <Mail className="h-3 w-3" />}
+                                </button>
+
                                 {email.folder !== "archived" ? (
                                   <button
                                     type="button"
@@ -2534,12 +2628,20 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                                   <Trash2 className="h-3 w-3" />
                                 </button>
                               </div>
-                              <span className="text-[11px] text-muted-foreground group-hover:hidden">
+                              <span
+                                className={`text-[11px] group-hover:hidden ${
+                                  isUnread ? "font-bold text-primary" : "text-muted-foreground"
+                                }`}
+                              >
                                 {email.time}
                               </span>
                             </div>
                           </div>
-                          <h3 className="font-medium text-xs truncate mb-1 text-foreground pl-5">
+                          <h3
+                            className={`text-xs truncate mb-1 pl-5 ${
+                              isUnread ? "font-bold text-foreground" : "font-medium text-foreground/80"
+                            }`}
+                          >
                             {email.subject}
                           </h3>
                           {isEmailAiEnabled(email) ? (
@@ -2841,18 +2943,31 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
 
                                   <div className="h-px bg-border my-1" />
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActionNotice("Correo marcado como no leído");
-                                      setEmailActionsMenuOpen(false);
-                                      setTimeout(() => setActionNotice(null), 3000);
-                                    }}
-                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                                  >
-                                    <Mail className="h-4 w-4 shrink-0" />
-                                    <span>Marcar como no leído</span>
-                                  </button>
+                                  {selectedEmail.isUnread ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleMarkAsRead([selectedEmail.id]);
+                                        setEmailActionsMenuOpen(false);
+                                      }}
+                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-foreground transition-colors cursor-pointer"
+                                    >
+                                      <MailOpen className="h-4 w-4 text-primary shrink-0" />
+                                      <span>Marcar como leído</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleMarkAsUnread([selectedEmail.id]);
+                                        setEmailActionsMenuOpen(false);
+                                      }}
+                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                    >
+                                      <Mail className="h-4 w-4 shrink-0" />
+                                      <span>Marcar como no leído</span>
+                                    </button>
+                                  )}
 
                                   <button
                                     type="button"
@@ -4138,8 +4253,7 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
         onSelectEmail={(emailId) => {
           const found = emailsList.find((e) => e.id === emailId);
           if (found) {
-            setSelectedEmail(found);
-            setCol3Open(true);
+            handleSelectAndReadEmail(found);
           }
         }}
       />
