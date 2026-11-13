@@ -102,8 +102,68 @@ interface TenantAdminViewProps {
 
 export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminViewProps) {
   const [activeTab, setActiveTab] = useState<
-    "users" | "llm" | "analytics" | "telegram" | "security" | "assets"
+    "users" | "llm" | "analytics" | "telegram" | "integrations" | "security" | "assets"
   >("users");
+
+  // Block 3 State: WhatsApp Business BYOA, Hashed API Keys & Signed Outbound Webhooks
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState("");
+  const [waAccessToken, setWaAccessToken] = useState("");
+  const [waAppSecret, setWaAppSecret] = useState("");
+  const [waReplyPolicy, setWaReplyPolicy] = useState<"contacts_only" | "notifications_only" | "daily_cap">(
+    "contacts_only"
+  );
+  const [waDailyCap, setWaDailyCap] = useState(50);
+
+  const [apiKeysList, setApiKeysList] = useState<
+    Array<{
+      id: string;
+      name: string;
+      keyPrefix: string;
+      keyHashPreview: string;
+      scopes: string[];
+      rateLimitPerMin: number;
+      createdAt: string;
+    }>
+  >([
+    {
+      id: "ak-1",
+      name: "Conector n8n Producción",
+      keyPrefix: "wv_live_9a4f12...c81b",
+      keyHashPreview: "e3b0c44298fc...",
+      scopes: ["mail:read", "tasks:write", "webhooks:trigger"],
+      rateLimitPerMin: 60,
+      createdAt: "Activa",
+    },
+  ]);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(["mail:read", "tasks:write"]);
+  const [justCreatedRawKey, setJustCreatedRawKey] = useState<string | null>(null);
+
+  const [webhooksList, setWebhooksList] = useState<
+    Array<{
+      id: string;
+      name: string;
+      targetUrl: string;
+      signingSecretPreview: string;
+      events: string[];
+      lastStatus: "delivered" | "failed" | "pending";
+      lastHttpStatus?: number;
+      nextRetry?: string | null;
+    }>
+  >([
+    {
+      id: "wh-1",
+      name: "n8n — Facturas entrantes a Finanzas",
+      targetUrl: "https://hooks.tu-n8n-empresa.com/webhook/worvanta-facturas",
+      signingSecretPreview: "whsec_7f2b...91a0 (HMAC-SHA256)",
+      events: ["email.received", "task.created"],
+      lastStatus: "delivered",
+      lastHttpStatus: 200,
+    },
+  ]);
+  const [newWebhookName, setNewWebhookName] = useState("");
+  const [newWebhookUrl, setNewWebhookUrl] = useState("");
+  const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
 
   // User Management State
   const [users, setUsers] = useState<TenantUser[]>(mockTenantUsers);
@@ -785,6 +845,18 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
             >
               <MessageSquare className="h-4 w-4" />
               <span>Bot Telegram & Whitelist</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("integrations")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg font-medium text-xs transition-colors cursor-pointer ${
+                activeTab === "integrations"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Zap className="h-4 w-4" />
+              <span>WhatsApp, Webhooks & API</span>
             </button>
 
             <button
@@ -1980,6 +2052,414 @@ export function TenantAdminView({ tenantName, onBackToWorkspace }: TenantAdminVi
                       <span className="text-muted-foreground text-[11px]">31 de Diciembre</span>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: WHATSAPP BUSINESS (BYOA), SIGNED WEBHOOKS & HASHED API KEYS */}
+          {activeTab === "integrations" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-primary" />
+                  <span>WhatsApp Business (BYOA), Webhooks Salientes Firmados & API Keys</span>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Conecta tu propia cuenta de Meta Cloud API con control de gasto por mensaje, integra n8n/Zapier con Webhooks HMAC-SHA256 anti-SSRF y gestiona API Keys hasheadas.
+                </p>
+              </div>
+
+              {/* 1. WHATSAPP BUSINESS CLOUD API (BYOA + CONTROL DE COSTOS META 2025/2026) */}
+              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-emerald-500" />
+                      <span>WhatsApp Business Cloud API — Bring Your Own Meta App (BYOA)</span>
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Cada tenant utiliza su propio Phone Number ID, System User Token y App Secret (validación estricta de <span className="font-mono">X-Hub-Signature-256</span>).
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full font-semibold">
+                    HMAC-SHA256 + AES-256-GCM (v1)
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs space-y-1">
+                  <div className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <DollarSign className="h-4 w-4" />
+                    <span>Control de Gasto por Mensaje (Tarifario Meta Jul 2025 / Oct 2026)</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Meta cobra por mensaje entregado (incluyendo respuestas de servicio y plantillas de utilidad dentro de la ventana de 24h desde oct. 2026; en Argentina ~US$0,026 servicio / ~US$0,030 utilidad / ~US$0,071 marketing). Configura abajo la política de respuesta para evitar que números desconocidos o bots consuman saldo de Meta y tokens de IA.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Meta Phone Number ID
+                    </label>
+                    <input
+                      type="text"
+                      value={waPhoneNumberId}
+                      onChange={(e) => setWaPhoneNumberId(e.target.value)}
+                      placeholder="Ej: 109283746510293"
+                      className="w-full bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      System User Access Token (Cifrado en Bóveda)
+                    </label>
+                    <input
+                      type="password"
+                      value={waAccessToken}
+                      onChange={(e) => setWaAccessToken(e.target.value)}
+                      placeholder="EAAGm0PX4ZCps..."
+                      className="w-full bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Meta App Secret (Valida X-Hub-Signature-256)
+                    </label>
+                    <input
+                      type="password"
+                      value={waAppSecret}
+                      onChange={(e) => setWaAppSecret(e.target.value)}
+                      placeholder="••••••••••••••••••••••••"
+                      className="w-full bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Política de Respuesta Automática (Protección de Saldo Meta)
+                    </label>
+                    <select
+                      value={waReplyPolicy}
+                      onChange={(e) => setWaReplyPolicy(e.target.value as any)}
+                      className="w-full bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs text-foreground"
+                    >
+                      <option value="contacts_only">
+                        🛡️ Solo responder a contactos corporativos registrados (Recomendado)
+                      </option>
+                      <option value="notifications_only">
+                        🔕 Solo alertas internas al equipo (Cero respuestas automáticas a clientes)
+                      </option>
+                      <option value="daily_cap">
+                        ⚡ Permitir respuestas con tope estricto por día/contacto
+                      </option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Tope Máximo de Mensajes Salientes / Día
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={waDailyCap}
+                        onChange={(e) => setWaDailyCap(Number(e.target.value))}
+                        className="w-32 bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          triggerNotice(
+                            "✓ Configuración de WhatsApp Business (BYOA) y política de costos guardada en bóveda cifrada"
+                          )
+                        }
+                        className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer"
+                      >
+                        Guardar WhatsApp BYOA
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. API KEYS CON HASH SHA-256, SCOPES Y RATE LIMIT */}
+              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <Key className="h-4 w-4 text-primary" />
+                      <span>API Keys del Tenant (Almacenadas con Hash SHA-256)</span>
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      El secreto completo se muestra una única vez al crearla. En base de datos solo se guarda el prefijo visual y su hash <span className="font-mono">SHA-256</span>.
+                    </p>
+                  </div>
+                </div>
+
+                {justCreatedRawKey && (
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border-2 border-emerald-500/30 space-y-2 text-xs">
+                    <div className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
+                      <span>⚠️ Copia tu API Key ahora — No volverá a mostrarse nunca más</span>
+                      <button
+                        type="button"
+                        onClick={() => setJustCreatedRawKey(null)}
+                        className="text-[11px] underline cursor-pointer"
+                      >
+                        Ocultar
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 p-2 rounded bg-card border border-border font-mono text-xs select-all">
+                        {justCreatedRawKey}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(justCreatedRawKey);
+                          triggerNotice("API Key copiada al portapapeles");
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer flex items-center gap-1"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copiar</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-end gap-3 text-xs">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Nombre de la integración (n8n, Zapier, ERP)
+                    </label>
+                    <input
+                      type="text"
+                      value={newKeyName}
+                      onChange={(e) => setNewKeyName(e.target.value)}
+                      placeholder="Ej: n8n Automatización Contable"
+                      className="w-full bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Permisos (Scopes)
+                    </label>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {["mail:read", "tasks:write", "contacts:read", "webhooks:trigger"].map((sc) => {
+                        const active = newKeyScopes.includes(sc);
+                        return (
+                          <button
+                            key={sc}
+                            type="button"
+                            onClick={() =>
+                              setNewKeyScopes((prev) =>
+                                prev.includes(sc) ? prev.filter((x) => x !== sc) : [...prev, sc]
+                              )
+                            }
+                            className={`px-2 py-1 rounded border font-mono text-[10px] cursor-pointer ${
+                              active
+                                ? "bg-primary/15 text-primary border-primary/30 font-bold"
+                                : "bg-muted/30 text-muted-foreground border-border"
+                            }`}
+                          >
+                            {sc}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await fetch("/api/tenant/api-keys", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          name: newKeyName || "Integración Externa",
+                          scopes: newKeyScopes,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.ok) {
+                        setJustCreatedRawKey(data.rawKey);
+                        setApiKeysList((prev) => [
+                          {
+                            id: `ak-${Date.now()}`,
+                            name: newKeyName || "Integración Externa",
+                            keyPrefix: data.keyPrefix,
+                            keyHashPreview: data.keyHashPreview,
+                            scopes: data.scopes,
+                            rateLimitPerMin: 60,
+                            createdAt: "Recién creada",
+                          },
+                          ...prev,
+                        ]);
+                        setNewKeyName("");
+                      }
+                    }}
+                    className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer"
+                  >
+                    + Generar API Key
+                  </button>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  {apiKeysList.map((k) => (
+                    <div
+                      key={k.id}
+                      className="p-3 rounded-xl border border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <div className="font-bold text-foreground flex items-center gap-2">
+                          <span>{k.name}</span>
+                          <span className="font-mono text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded">
+                            {k.keyPrefix}
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            SHA-256: {k.keyHashPreview}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2">
+                          <span>Scopes: {k.scopes.join(", ")}</span>
+                          <span>•</span>
+                          <span>Rate Limit: {k.rateLimitPerMin} req/min</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setApiKeysList((prev) => prev.filter((item) => item.id !== k.id))}
+                        className="px-2.5 py-1 rounded-lg text-destructive hover:bg-destructive/10 text-xs font-semibold cursor-pointer"
+                      >
+                        Revocar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. WEBHOOKS SALIENTES FIRMADOS (HMAC-SHA256 + ANTI-SSRF + RETRY BACKOFF) */}
+              <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <Radio className="h-4 w-4 text-primary" />
+                      <span>Webhooks Salientes (Firmados con HMAC-SHA256 & Protección Anti-SSRF)</span>
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Bloquea IPs privadas/metadata, exige HTTPS, deshabilita redirecciones (<span className="font-mono">redirect: &quot;error&quot;</span>) y firma cada entrega con <span className="font-mono">X-Worvanta-Signature-256</span>.
+                    </p>
+                  </div>
+                </div>
+
+                {webhookFeedback && (
+                  <div className="p-3 rounded-xl bg-primary/10 border border-primary/25 text-xs text-primary font-medium">
+                    {webhookFeedback}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <input
+                    type="text"
+                    value={newWebhookName}
+                    onChange={(e) => setNewWebhookName(e.target.value)}
+                    placeholder="Nombre (ej: n8n Finanzas)"
+                    className="bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs"
+                  />
+                  <input
+                    type="url"
+                    value={newWebhookUrl}
+                    onChange={(e) => setNewWebhookUrl(e.target.value)}
+                    placeholder="https://tu-endpoint-seguro.com/webhook"
+                    className="bg-muted/40 border border-border rounded-lg px-3 py-1.5 text-xs font-mono"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setWebhookFeedback("Verificando URL contra SSRF y registrando webhook...");
+                        const res = await fetch("/api/tenant/webhooks", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            action: "create",
+                            name: newWebhookName || "Webhook Corporativo",
+                            targetUrl: newWebhookUrl,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setWebhookFeedback(`🛡️ Bloqueado por seguridad: ${data.error}`);
+                          return;
+                        }
+                        setWebhooksList((prev) => [
+                          {
+                            id: `wh-${Date.now()}`,
+                            name: newWebhookName || "Webhook Corporativo",
+                            targetUrl: data.targetUrl,
+                            signingSecretPreview: `${data.signingSecret.slice(0, 10)}... (HMAC-SHA256)`,
+                            events: data.events,
+                            lastStatus: "pending",
+                          },
+                          ...prev,
+                        ]);
+                        setWebhookFeedback(
+                          `✓ Webhook registrado. Secreto HMAC (guárdalo en tu receptor): ${data.signingSecret}`
+                        );
+                        setNewWebhookName("");
+                        setNewWebhookUrl("");
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 cursor-pointer"
+                    >
+                      + Registrar Webhook
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  {webhooksList.map((wh) => (
+                    <div
+                      key={wh.id}
+                      className="p-3 rounded-xl border border-border bg-muted/20 flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <div className="font-bold text-foreground flex items-center gap-2">
+                          <span>{wh.name}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              wh.lastStatus === "delivered"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : wh.lastStatus === "failed"
+                                ? "bg-destructive/15 text-destructive"
+                                : "bg-amber-500/15 text-amber-500"
+                            }`}
+                          >
+                            {wh.lastStatus === "delivered"
+                              ? `Entregado (HTTP ${wh.lastHttpStatus || 200})`
+                              : wh.lastStatus === "failed"
+                              ? "Falló • Backoff Activo"
+                              : "Pendiente"}
+                          </span>
+                        </div>
+                        <div className="font-mono text-[11px] text-muted-foreground mt-0.5">
+                          {wh.targetUrl} • Firma: {wh.signingSecretPreview}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setWebhooksList((prev) => prev.filter((item) => item.id !== wh.id))
+                        }
+                        className="p-1.5 text-muted-foreground hover:text-destructive cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
