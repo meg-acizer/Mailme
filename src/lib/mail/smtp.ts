@@ -1,7 +1,9 @@
 import nodemailer from "nodemailer";
 import type { SmtpConfig, SendMailParams } from "@/types/mail";
+import { assertSafeMailServer } from "./ssrf";
 
 export async function verifySmtpConnection(config: SmtpConfig): Promise<boolean> {
+  await assertSafeMailServer(config.host, config.port, "smtp");
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
@@ -21,6 +23,7 @@ export async function sendMailViaSmtp(
   params: SendMailParams,
   fromHeader: string
 ): Promise<{ messageId: string }> {
+  await assertSafeMailServer(config.host, config.port, "smtp");
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,

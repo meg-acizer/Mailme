@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import net from "net";
 import { logAiAuditEvent } from "@/lib/audit/audit-logger";
 import { evaluateEmailAntispam } from "@/lib/mail/antispam";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/security/rate-limit";
 
 // Standard EICAR Antivirus Test Signature
 const EICAR_SIGNATURE = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
@@ -72,6 +73,10 @@ async function scanBufferWithClamd(buffer: Uint8Array): Promise<{ clean: boolean
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`mail:scan:${ip}`, 60, 60_000);
+    if (!rl.allowed) return rateLimitResponse(rl.resetAt);
+
     const contentType = request.headers.get("content-type") || "";
     let fileName = "";
     let fileSize = 0;

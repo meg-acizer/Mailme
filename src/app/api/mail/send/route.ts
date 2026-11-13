@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptCredentials } from "@/lib/crypto";
 import { sendMailViaSmtp } from "@/lib/mail/smtp";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/security/rate-limit";
 import type { AccountCredentials, SendMailParams } from "@/types/mail";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`mail:send:${ip}`, 30, 60_000);
+    if (!rl.allowed) return rateLimitResponse(rl.resetAt);
+
     const body: SendMailParams = await request.json();
     const { accountId, to, cc, bcc, subject, text, html, attachments } = body;
 

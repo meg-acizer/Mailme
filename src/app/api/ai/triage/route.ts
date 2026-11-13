@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { analyzeEmailWithAI } from "@/lib/ai/triage";
 import { logAiAuditEvent } from "@/lib/audit/audit-logger";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/security/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`ai:triage:${ip}`, 40, 60_000);
+    if (!rl.allowed) return rateLimitResponse(rl.resetAt);
+
     const body = await request.json();
     const { subject, from, text, tenantSlug, user } = body;
 

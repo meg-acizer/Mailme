@@ -3,8 +3,10 @@ import { simpleParser } from "mailparser";
 import type { ImapConfig, ParsedEmailMessage } from "@/types/mail";
 import { sanitizeEmailHtml } from "./sanitizer";
 import { evaluateEmailAntispam } from "./antispam";
+import { assertSafeMailServer } from "./ssrf";
 
 export async function verifyImapConnection(config: ImapConfig): Promise<boolean> {
+  await assertSafeMailServer(config.host, config.port, "imap");
   const client = new ImapFlow({
     host: config.host,
     port: config.port,
@@ -30,6 +32,7 @@ export async function fetchRecentImapEmails(
   config: ImapConfig,
   options: { folder?: string; limit?: number; blacklistDomains?: string[] } = {}
 ): Promise<ParsedEmailMessage[]> {
+  await assertSafeMailServer(config.host, config.port, "imap");
   const folder = options.folder || "INBOX";
   const limit = options.limit || 30;
 

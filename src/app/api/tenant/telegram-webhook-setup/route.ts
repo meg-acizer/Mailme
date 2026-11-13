@@ -44,9 +44,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Call setWebhook
+    // 2. Call setWebhook (include secret_token when configured)
+    const webhookParams = new URLSearchParams({ url: targetWebhook });
+    if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+      webhookParams.set("secret_token", process.env.TELEGRAM_WEBHOOK_SECRET);
+    }
     const setRes = await fetch(
-      `https://api.telegram.org/bot${tokenToUse}/setWebhook?url=${encodeURIComponent(targetWebhook)}`
+      `https://api.telegram.org/bot${tokenToUse}/setWebhook?${webhookParams.toString()}`
     );
     const setData = await setRes.json();
 

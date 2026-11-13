@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { encryptCredentials } from "@/lib/crypto";
 import { verifyImapConnection } from "@/lib/mail/imap";
 import { verifySmtpConnection } from "@/lib/mail/smtp";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/security/rate-limit";
 import type { AccountCredentials } from "@/types/mail";
 
 export async function GET(request: Request) {
@@ -31,6 +32,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = checkRateLimit(`accounts:post:${ip}`, 15, 60_000);
+    if (!rl.allowed) return rateLimitResponse(rl.resetAt);
+
     const body = await request.json();
     const { tenantId, userId, provider, email, displayName, colorTag, imap, smtp } = body;
 
