@@ -5,7 +5,8 @@ export interface SmtpConfig {
   port: number;
   secure: boolean; // true for 465, false for 587/STARTTLS
   user: string;
-  pass: string;
+  pass?: string;
+  accessToken?: string; // OAuth2 / XOAUTH2 token (e.g. Microsoft 365)
 }
 
 export interface ImapConfig {
@@ -13,7 +14,8 @@ export interface ImapConfig {
   port: number;
   secure: boolean;
   user: string;
-  pass: string;
+  pass?: string;
+  accessToken?: string; // OAuth2 / XOAUTH2 token (e.g. Microsoft 365)
 }
 
 export interface AccountCredentials {

@@ -13,7 +13,7 @@ export async function verifyImapConnection(config: ImapConfig): Promise<boolean>
     secure: config.secure,
     auth: {
       user: config.user,
-      pass: config.pass,
+      ...(config.accessToken ? { accessToken: config.accessToken } : { pass: config.pass || "" }),
     },
     logger: false,
   });
@@ -23,7 +23,7 @@ export async function verifyImapConnection(config: ImapConfig): Promise<boolean>
     await client.logout();
     return true;
   } catch (error) {
-    console.error("IMAP connection verification failed:", error);
+    console.error("IMAP connection verification failed");
     throw error;
   }
 }
@@ -42,7 +42,7 @@ export async function fetchRecentImapEmails(
     secure: config.secure,
     auth: {
       user: config.user,
-      pass: config.pass,
+      ...(config.accessToken ? { accessToken: config.accessToken } : { pass: config.pass || "" }),
     },
     logger: false,
   });

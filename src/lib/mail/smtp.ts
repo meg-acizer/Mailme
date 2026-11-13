@@ -8,10 +8,9 @@ export async function verifySmtpConnection(config: SmtpConfig): Promise<boolean>
     host: config.host,
     port: config.port,
     secure: config.secure,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
+    auth: config.accessToken
+      ? { type: "OAuth2", user: config.user, accessToken: config.accessToken }
+      : { user: config.user, pass: config.pass || "" },
     connectionTimeout: 10000,
   });
 
@@ -28,10 +27,9 @@ export async function sendMailViaSmtp(
     host: config.host,
     port: config.port,
     secure: config.secure,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
+    auth: config.accessToken
+      ? { type: "OAuth2", user: config.user, accessToken: config.accessToken }
+      : { user: config.user, pass: config.pass || "" },
   });
 
   const info = await transporter.sendMail({

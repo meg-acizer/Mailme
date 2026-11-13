@@ -38,6 +38,7 @@ export interface ConnectedAccount {
   isDefault?: boolean;
   isCorporateDefault?: boolean; // Cuenta corporativa default asignada por el Tenant Admin
   aiEnabled?: boolean; // Si tiene IA habilitada o es solo lectura simple + Antispam/ClamAV
+  isShared?: boolean; // Bandeja compartida de equipo (soporte@, ventas@)
 }
 
 export interface ConnectedCalendar {
@@ -128,6 +129,7 @@ export function AccountManagerModal({
   const [emailAddress, setEmailAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [colorTag, setColorTag] = useState("#3b82f6");
+  const [isSharedInbox, setIsSharedInbox] = useState(false);
 
   // IMAP/SMTP fields
   const [imapHost, setImapHost] = useState("");
@@ -289,11 +291,16 @@ export function AccountManagerModal({
         id: `acc-${Date.now()}`,
         provider,
         email: emailAddress,
-        displayName: displayName || `${emailAddress.split("@")[0]} (Propia)`,
+        displayName:
+          displayName ||
+          (isSharedInbox
+            ? `${emailAddress.split("@")[0]} (Bandeja Compartida)`
+            : `${emailAddress.split("@")[0]} (Propia)`),
         color: colorTag,
         isDefault: false,
         isCorporateDefault: false,
         aiEnabled: shouldEnableAi,
+        isShared: isSharedInbox,
       };
 
       onAddAccount(newAcc);
@@ -301,6 +308,7 @@ export function AccountManagerModal({
       setEmailAddress("");
       setPassword("");
       setDisplayName("");
+      setIsSharedInbox(false);
       setFeedback(
         shouldEnableAi
           ? "✓ Cuenta propia conectada con IA + Antispam & Antivirus ClamAV habilitados."
@@ -786,6 +794,10 @@ export function AccountManagerModal({
                           onClick={() => {
                             setProvider("google");
                             setColorTag("#3b82f6");
+                            setImapHost("imap.gmail.com");
+                            setImapPort(993);
+                            setSmtpHost("smtp.gmail.com");
+                            setSmtpPort(465);
                           }}
                           className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
                             provider === "google"
@@ -794,7 +806,7 @@ export function AccountManagerModal({
                           }`}
                         >
                           <span>Google / Gmail</span>
-                          <span className="text-[10px] opacity-75">OAuth / App Pass</span>
+                          <span className="text-[10px] opacity-75">IMAP + Contraseña App</span>
                         </button>
 
                         <button
@@ -810,7 +822,7 @@ export function AccountManagerModal({
                           }`}
                         >
                           <span>Microsoft 365 / Outlook</span>
-                          <span className="text-[10px] opacity-75">Graph / Exchange</span>
+                          <span className="text-[10px] opacity-75">OAuth 2.0 (Entra ID)</span>
                         </button>
 
                         <button
@@ -818,6 +830,10 @@ export function AccountManagerModal({
                           onClick={() => {
                             setProvider("imap_smtp");
                             setColorTag("#10b981");
+                            setImapHost("");
+                            setImapPort(993);
+                            setSmtpHost("");
+                            setSmtpPort(587);
                           }}
                           className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 cursor-pointer transition-all ${
                             provider === "imap_smtp"
@@ -826,10 +842,28 @@ export function AccountManagerModal({
                           }`}
                         >
                           <span>IMAP / SMTP</span>
-                          <span className="text-[10px] opacity-75">Servidor Propio</span>
+                          <span className="text-[10px] opacity-75">Hosting / Servidor Propio</span>
                         </button>
                       </div>
                     </div>
+
+                    {/* Checkbox Bandeja Compartida de Equipo */}
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl bg-primary/5 border border-primary/20 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isSharedInbox}
+                        onChange={(e) => setIsSharedInbox(e.target.checked)}
+                        className="mt-0.5 rounded border-border text-primary focus:ring-primary"
+                      />
+                      <div className="text-xs">
+                        <span className="font-bold text-foreground block">
+                          Bandeja Compartida de Equipo (ej. soporte@, ventas@, administracion@)
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          Habilita estados de ticket (Abierto, En curso, Resuelto), asignación de responsable y notas internas privadas en cada hilo.
+                        </span>
+                      </div>
+                    </label>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
@@ -879,6 +913,87 @@ export function AccountManagerModal({
                         )}
                       </div>
                     </div>
+
+                    {provider === "microsoft" && (
+                      <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/25 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                            <ShieldCheck className="h-4 w-4 text-orange-500" />
+                            Microsoft 365 — OAuth 2.0 Modern Auth (Entra ID)
+                          </span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400">
+                            XOAUTH2 / Graph
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Microsoft retiró la autenticación básica en Exchange Online. Al vincular esta cuenta se utiliza <strong>OAuth 2.0 con Refresh Token cifrado (AES-256-GCM v1)</strong> para correo y calendario corporativo sin guardar contraseñas planas.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(
+                                `/api/oauth/authorize?target=microsoft_mail_calendar&email=${encodeURIComponent(emailAddress)}`
+                              );
+                              const data = await res.json();
+                              if (data.configured && data.url) {
+                                window.location.href = data.url;
+                              } else {
+                                setFeedback(
+                                  `ℹ️ Modo Demo Local: ${data.error || "Configura MICROSOFT_CLIENT_ID en Vercel para redirigir a Microsoft Entra ID. Puedes pulsar 'Vincular Cuenta Propia' para simular la conexión."}`
+                                );
+                              }
+                            } catch {
+                              setFeedback("ℹ️ Pulsa 'Vincular Cuenta Propia' para registrar la cuenta Microsoft 365.");
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-orange-500 text-white font-semibold text-xs hover:bg-orange-600 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                          <span>Autorizar con Microsoft 365 (OAuth 2.0)</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {provider === "google" && (
+                      <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/25 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                            <Key className="h-4 w-4 text-blue-500" />
+                            Gmail / Google Workspace — Contraseña de Aplicación (2FA)
+                          </span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                            imap.gmail.com:993
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground space-y-1 leading-relaxed">
+                          <p>
+                            1. Asegúrate de tener activa la <strong>Verificación en 2 pasos (2FA)</strong> en tu cuenta de Google (y que el Admin de Workspace permita App Passwords).
+                          </p>
+                          <p>
+                            2. Genera una clave de 16 letras en <span className="font-mono text-foreground">myaccount.google.com/apppasswords</span> y pégala abajo (se cifra con clave maestra versionada <span className="font-mono">v1</span>).
+                          </p>
+                          <p className="text-[10px] text-blue-600 dark:text-blue-400 font-medium pt-0.5">
+                            💡 Nota: Para Google Calendar puedes usar OAuth 2.0 directo en la pestaña &quot;Mis Calendarios&quot; (no requiere auditoría CASA).
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-foreground mb-1">
+                            Contraseña de Aplicación de Google (16 caracteres) *
+                          </label>
+                          <div className="relative">
+                            <Key className="h-3.5 w-3.5 absolute left-2.5 top-2 text-muted-foreground" />
+                            <input
+                              type="password"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="xxxx xxxx xxxx xxxx"
+                              className="w-full bg-card border border-border pl-8 pr-3 py-1.5 rounded-lg text-xs font-mono"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {provider === "imap_smtp" && (
                       <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
@@ -1199,6 +1314,48 @@ export function AccountManagerModal({
                       </div>
                     </div>
                   </div>
+
+                  {calProvider !== "caldav_ics" && (
+                    <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] text-muted-foreground">
+                        {calProvider === "google" ? (
+                          <span>
+                            <strong>Google Calendar OAuth 2.0:</strong> Usa scopes sensibles (<span className="font-mono">calendar.events</span>) que no requieren auditoría CASA Tier 2.
+                          </span>
+                        ) : (
+                          <span>
+                            <strong>Microsoft Graph Calendar:</strong> Sincronización OAuth 2.0 directa con Entra ID.
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const target =
+                            calProvider === "google" ? "google_calendar" : "microsoft_mail_calendar";
+                          try {
+                            const res = await fetch(
+                              `/api/oauth/authorize?target=${target}&email=${encodeURIComponent(calEmailOrUrl)}`
+                            );
+                            const data = await res.json();
+                            if (data.configured && data.url) {
+                              window.location.href = data.url;
+                            } else {
+                              setFeedback(
+                                `ℹ️ ${data.error || "Puedes pulsar 'Conectar Calendario' para vincularlo en modo local."}`
+                              );
+                            }
+                          } catch {
+                            setFeedback("ℹ️ Pulsa 'Conectar Calendario' para completar la vinculación.");
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-primary/15 text-primary font-semibold text-[11px] hover:bg-primary/25 transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <Link2 className="h-3 w-3" />
+                        <span>Autorizar OAuth 2.0</span>
+                      </button>
+                    </div>
+                  )}
 
                   <div className="flex justify-end gap-2 pt-2 border-t border-border">
                     <button

@@ -90,6 +90,17 @@ interface EmailItem {
     meeting?: string;
     invoice?: string;
   };
+  isSharedInbox?: boolean;
+  ticketStatus?: "open" | "in_progress" | "resolved";
+  assignedTo?: string;
+  internalNotes?: Array<{
+    id: string;
+    author: string;
+    text: string;
+    time: string;
+  }>;
+  linkedTaskTitle?: string;
+  calendarAdded?: boolean;
 }
 
 const mockEmails: EmailItem[] = [
@@ -107,13 +118,25 @@ const mockEmails: EmailItem[] = [
     triage: "important",
     priority: "high",
     tags: ["#Finanzas", "#Propuesta-Q4", "#VIP"],
-    to: ["equipo@empresa.com", "direccion@empresa.com"],
+    to: ["ventas@empresa.com", "direccion@empresa.com"],
     cc: ["carlos@techcorp.io"],
+    isSharedInbox: true,
+    ticketStatus: "in_progress",
+    assignedTo: "meg-acizer",
+    internalNotes: [
+      {
+        id: "n-1",
+        author: "Laura Benítez",
+        text: "@meg-acizer revisé los números del anexo 2 y el margen está en línea con lo aprobado.",
+        time: "10:50 AM",
+      },
+    ],
     attachments: [
       { name: "Presupuesto_Q4_v2.pdf", size: "1.4 MB", type: "application/pdf" },
+      { name: "invitacion_reunion_q4.ics", size: "4 KB", type: "text/calendar" },
     ],
     extractedData: {
-      meeting: "Jueves 15:00 hs (Libre en tus agendas)",
+      meeting: "Jueves 15:00 hs — Revisión Técnica Q4 (45 min)",
       invoice: "Presupuesto_Q4_v2.pdf ($14,500)",
     },
   },
@@ -341,12 +364,21 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
       id: "3",
       provider: "imap_smtp",
       email: "soporte@miempresa.com",
-      displayName: "IMAP Servidor (Cuenta Propia)",
+      displayName: "Soporte & Ventas (Bandeja Compartida)",
       color: "#10b981",
       isCorporateDefault: false,
       aiEnabled: false,
+      isShared: true,
     },
   ]);
+
+  // Block 1 Collaboration States (Internal Notes, Convert to Task Modal, Share to Chat)
+  const [newInternalNote, setNewInternalNote] = useState("");
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskDraftTitle, setTaskDraftTitle] = useState("");
+  const [taskDraftAssignee, setTaskDraftAssignee] = useState("meg-acizer");
+  const [taskDraftDue, setTaskDraftDue] = useState("Mañana 18:00");
+  const [shareChatMenuOpen, setShareChatMenuOpen] = useState(false);
 
   // User Connected Calendars State (Corporate Default + Personal Calendars)
   const [calendarsList, setCalendarsList] = useState<ConnectedCalendar[]>([
@@ -579,6 +611,88 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
   const handleSaveContact = (email: string, name?: string) => {
     setContactSavedNotice(`✓ Contacto "${name || email}" guardado en la Libreta Corporativa.`);
     setTimeout(() => setContactSavedNotice(null), 3500);
+  };
+
+  // Block 1: Shared Inbox status & assignee handlers
+  const handleUpdateTicketStatus = (emailId: string, ticketStatus: "open" | "in_progress" | "resolved") => {
+    setEmailsList((prev) =>
+      prev.map((e) => (e.id === emailId ? { ...e, ticketStatus } : e))
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, ticketStatus }));
+    }
+    const labels = { open: "Abierto", in_progress: "En curso", resolved: "Resuelto" };
+    setActionNotice(`Estado del hilo actualizado a: ${labels[ticketStatus]}`);
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleAssignEmail = (emailId: string, assignedTo: string) => {
+    setEmailsList((prev) =>
+      prev.map((e) => (e.id === emailId ? { ...e, assignedTo } : e))
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, assignedTo }));
+    }
+    setActionNotice(
+      assignedTo ? `Correo asignado a ${assignedTo}` : "Correo dejado sin asignar"
+    );
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleAddInternalNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newInternalNote.trim()) return;
+    const note = {
+      id: `note-${Date.now()}`,
+      author: userProfile.name || "meg-acizer",
+      text: newInternalNote.trim(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setEmailsList((prev) =>
+      prev.map((item) =>
+        item.id === selectedEmail.id
+          ? { ...item, internalNotes: [...(item.internalNotes || []), note] }
+          : item
+      )
+    );
+    setSelectedEmail((prev) => ({
+      ...prev,
+      internalNotes: [...(prev.internalNotes || []), note],
+    }));
+    setNewInternalNote("");
+    setActionNotice("Nota interna agregada al hilo (privada para tu equipo)");
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleCreateTaskFromEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = taskDraftTitle.trim() || `Seguimiento: ${selectedEmail.subject}`;
+    setEmailsList((prev) =>
+      prev.map((item) =>
+        item.id === selectedEmail.id ? { ...item, linkedTaskTitle: title } : item
+      )
+    );
+    setSelectedEmail((prev) => ({ ...prev, linkedTaskTitle: title }));
+    setTaskModalOpen(false);
+    setActionNotice(`✓ Tarea creada para ${taskDraftAssignee} (${taskDraftDue})`);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleAddInviteToCalendar = (emailId: string) => {
+    setEmailsList((prev) =>
+      prev.map((item) => (item.id === emailId ? { ...item, calendarAdded: true } : item))
+    );
+    if (selectedEmail.id === emailId) {
+      setSelectedEmail((prev) => ({ ...prev, calendarAdded: true }));
+    }
+    setActionNotice("📅 Invitación agendada en tu Calendario Unificado");
+    setTimeout(() => setActionNotice(null), 3500);
+  };
+
+  const handleShareEmailToChannel = (channelName: string) => {
+    setShareChatMenuOpen(false);
+    setActionNotice(`💬 Correo compartido en ${channelName} con tarjeta interactiva`);
+    setTimeout(() => setActionNotice(null), 3500);
   };
 
   const handleRunAiTriage = async (targetEmail: EmailItem) => {
@@ -1735,15 +1849,77 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                         <h1 className="text-xl font-bold text-foreground tracking-tight leading-snug">
                           {selectedEmail.subject}
                         </h1>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                          {/* Convertir en Tarea (1-clic) */}
                           <button
-                            onClick={() => setActiveModule("chat")}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                            title="Discutir este correo internamente con el equipo"
+                            type="button"
+                            onClick={() => {
+                              setTaskDraftTitle(`Responder / Revisar: ${selectedEmail.subject}`);
+                              setTaskDraftAssignee(selectedEmail.assignedTo || userProfile.name || "meg-acizer");
+                              setTaskModalOpen((prev) => !prev);
+                            }}
+                            className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                              selectedEmail.linkedTaskTitle
+                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold"
+                                : "border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground"
+                            }`}
+                            title="Convertir este correo en una tarea asignable con fecha límite"
                           >
-                            <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                            <span className="hidden sm:inline">Discutir en Chat</span>
+                            <CheckSquare className="h-3.5 w-3.5 text-emerald-500" />
+                            <span className="hidden sm:inline">
+                              {selectedEmail.linkedTaskTitle ? "Tarea Vinculada" : "Crear Tarea"}
+                            </span>
                           </button>
+
+                          {/* Compartir en Canal de Chat */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setShareChatMenuOpen((prev) => !prev)}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                              title="Compartir este correo en un canal de chat o abrir debate interno"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                              <span className="hidden sm:inline">Compartir en Chat</span>
+                              <ChevronDown className="h-3 w-3 opacity-70" />
+                            </button>
+
+                            {shareChatMenuOpen && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShareChatMenuOpen(false)}
+                                />
+                                <div className="absolute right-0 top-full mt-1.5 z-50 w-56 bg-card border border-border rounded-xl shadow-2xl py-1.5 text-xs animate-in fade-in zoom-in-95">
+                                  <div className="px-3 py-1 text-[10px] font-bold uppercase text-muted-foreground">
+                                    Enviar tarjeta a canal
+                                  </div>
+                                  {["#general", "#ventas-q4", "#soporte-nivel-2", "#finanzas"].map((ch) => (
+                                    <button
+                                      key={ch}
+                                      type="button"
+                                      onClick={() => handleShareEmailToChannel(ch)}
+                                      className="w-full text-left px-3 py-1.5 hover:bg-muted text-foreground flex items-center justify-between cursor-pointer"
+                                    >
+                                      <span className="font-mono font-semibold text-primary">{ch}</span>
+                                      <span className="text-[10px] text-muted-foreground">Compartir</span>
+                                    </button>
+                                  ))}
+                                  <div className="h-px bg-border my-1" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShareChatMenuOpen(false);
+                                      setActiveModule("chat");
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-muted text-muted-foreground hover:text-foreground font-semibold cursor-pointer"
+                                  >
+                                    Abrir módulo de Chat →
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                           <button
                             onClick={() => handleOpenComposer(
                               selectedEmail.senderEmail,
@@ -1931,6 +2107,187 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                       </div>
                     </div>
 
+                    {/* 2B. BARRA DE BANDEJA COMPARTIDA (ASIGNACIÓN DE RESPONSABLE, ESTADO Y TAREA VINCULADA) */}
+                    <div className="px-8 py-2.5 bg-muted/25 border-b border-border/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                          <Users className="h-3.5 w-3.5 text-primary" />
+                          <span>Estado en Equipo:</span>
+                        </span>
+
+                        <div className="inline-flex items-center rounded-lg border border-border bg-card p-0.5 gap-0.5">
+                          {(
+                            [
+                              { id: "open", label: "Abierto", dot: "bg-amber-500" },
+                              { id: "in_progress", label: "En curso", dot: "bg-blue-500" },
+                              { id: "resolved", label: "Resuelto", dot: "bg-emerald-500" },
+                            ] as const
+                          ).map((st) => {
+                            const currentStatus = selectedEmail.ticketStatus || "open";
+                            const active = currentStatus === st.id;
+                            return (
+                              <button
+                                key={st.id}
+                                type="button"
+                                onClick={() => handleUpdateTicketStatus(selectedEmail.id, st.id)}
+                                className={`px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                  active
+                                    ? "bg-primary/15 text-primary"
+                                    : "text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                                <span>{st.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Responsable:
+                          </span>
+                          <select
+                            value={selectedEmail.assignedTo || ""}
+                            onChange={(e) => handleAssignEmail(selectedEmail.id, e.target.value)}
+                            className="bg-card border border-border rounded-lg px-2 py-1 text-[11px] font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                          >
+                            <option value="">Sin asignar</option>
+                            <option value="meg-acizer">meg-acizer (Tú)</option>
+                            <option value="Laura Benítez">Laura Benítez (Producto)</option>
+                            <option value="Carlos Mendoza">Carlos Mendoza (Ventas)</option>
+                            <option value="Sofía Ramos">Sofía Ramos (Soporte)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {selectedEmail.linkedTaskTitle && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveModule("tasks")}
+                          className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 hover:underline cursor-pointer"
+                        >
+                          <CheckSquare className="h-3 w-3" />
+                          <span>Tarea: {selectedEmail.linkedTaskTitle}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Modal inline rápido: Convertir Correo en Tarea */}
+                    {taskModalOpen && (
+                      <form
+                        onSubmit={handleCreateTaskFromEmail}
+                        className="mx-8 mt-4 p-4 rounded-xl bg-primary/5 border-2 border-primary/30 space-y-3 text-xs animate-in fade-in"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-foreground flex items-center gap-1.5">
+                            <CheckSquare className="h-4 w-4 text-primary" />
+                            Convertir Correo en Tarea de Equipo
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setTaskModalOpen(false)}
+                            className="text-muted-foreground hover:text-foreground cursor-pointer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <div className="sm:col-span-1">
+                            <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                              Título de la tarea
+                            </label>
+                            <input
+                              type="text"
+                              value={taskDraftTitle}
+                              onChange={(e) => setTaskDraftTitle(e.target.value)}
+                              className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                              Responsable
+                            </label>
+                            <select
+                              value={taskDraftAssignee}
+                              onChange={(e) => setTaskDraftAssignee(e.target.value)}
+                              className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground"
+                            >
+                              <option value="meg-acizer">meg-acizer (Tú)</option>
+                              <option value="Laura Benítez">Laura Benítez</option>
+                              <option value="Carlos Mendoza">Carlos Mendoza</option>
+                              <option value="Sofía Ramos">Sofía Ramos</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-muted-foreground mb-1">
+                              Fecha límite
+                            </label>
+                            <input
+                              type="text"
+                              value={taskDraftDue}
+                              onChange={(e) => setTaskDraftDue(e.target.value)}
+                              className="w-full bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTaskModalOpen(false)}
+                            className="px-3 py-1 rounded-lg text-muted-foreground hover:bg-muted cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-3.5 py-1 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 cursor-pointer"
+                          >
+                            Guardar Tarea Vinculada
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* Detector inteligente de invitación / reunión (.ics o fecha extraída) */}
+                    {selectedEmail.extractedData?.meeting && (
+                      <div className="mx-8 mt-4 p-3 rounded-xl bg-blue-500/10 border border-blue-500/25 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-lg bg-blue-500/15 text-blue-500">
+                            <CalendarPlus className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-foreground block">
+                              Invitación detectada en el correo (.ics / IA)
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {selectedEmail.extractedData.meeting}
+                            </span>
+                          </div>
+                        </div>
+                        {selectedEmail.calendarAdded ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveModule("calendar")}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            <span>Agendado • Ver en Calendario</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAddInviteToCalendar(selectedEmail.id)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <CalendarPlus className="h-3.5 w-3.5" />
+                            <span>Agregar al Calendario</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {/* 3. CUERPO DEL CORREO: Aspecto de Hoja de Papel */}
                     <div className="p-8 text-xs leading-relaxed space-y-4 text-foreground/90 font-sans min-h-[220px] bg-card">
                       <p>Estimado equipo,</p>
@@ -1974,6 +2331,53 @@ export function Workspace({ user, onLogout, onOpenAdmin }: WorkspaceProps) {
                           </button>
                         </div>
                       </div>
+                    </div>
+
+                    {/* 4B. NOTAS INTERNAS DEL EQUIPO EN EL HILO (Privadas del Tenant) */}
+                    <div className="px-8 py-4 bg-amber-500/5 border-t border-amber-500/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          <span>
+                            Notas Internas del Equipo ({(selectedEmail.internalNotes || []).length}) • Solo visibles para tu organización
+                          </span>
+                        </span>
+                      </div>
+
+                      {(selectedEmail.internalNotes || []).length > 0 && (
+                        <div className="space-y-2">
+                          {(selectedEmail.internalNotes || []).map((note) => (
+                            <div
+                              key={note.id}
+                              className="p-2.5 rounded-xl bg-card border border-amber-500/25 text-xs flex items-start justify-between gap-3"
+                            >
+                              <div>
+                                <span className="font-bold text-foreground mr-2">{note.author}</span>
+                                <span className="text-muted-foreground">{note.text}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                                {note.time}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <form onSubmit={handleAddInternalNote} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={newInternalNote}
+                          onChange={(e) => setNewInternalNote(e.target.value)}
+                          placeholder="Escribe una nota interna o menciona a @alguien (el cliente externo NO recibe esto)..."
+                          className="flex-1 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 font-semibold text-xs hover:bg-amber-500/25 transition-colors cursor-pointer shrink-0"
+                        >
+                          Agregar Nota
+                        </button>
+                      </form>
                     </div>
 
                     {/* 5. Respuestas Sugeridas de IA al Pie de la Hoja (Gated por Política IA de la Cuenta) */}
